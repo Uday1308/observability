@@ -1,0 +1,2209 @@
+{
+  "datasets": [
+    {
+      "name": "prev_cleanup_count",
+      "displayName": "Prev — Cleanup Candidates Count",
+      "queryLines": [
+        "WITH all_tables AS (\n",
+        "  SELECT\n",
+        "    table_catalog,\n",
+        "    table_schema,\n",
+        "    table_name,\n",
+        "    CONCAT(table_catalog, '.', table_schema, '.', table_name) AS full_table_name\n",
+        "  FROM\n",
+        "    system.information_schema.tables\n",
+        "  WHERE\n",
+        "    table_schema != 'information_schema'\n",
+        "    AND table_type NOT IN ('VIEW', 'FOREIGN')\n",
+        "    AND table_catalog != 'system'\n",
+        "    AND NOT (\n",
+        "      LOWER(table_name) LIKE '%audit%'\n",
+        "      OR LOWER(table_name) RLIKE '(_log$|_log_|_logs)'\n",
+        "      OR LOWER(table_name) LIKE '%metadata%'\n",
+        "      OR LOWER(table_name) LIKE '%bad_records%'\n",
+        "      OR LOWER(table_name) LIKE '%config%'\n",
+        "    )\n",
+        "),\n",
+        "dup_names AS (\n",
+        "  SELECT\n",
+        "    table_name\n",
+        "  FROM\n",
+        "    all_tables\n",
+        "  GROUP BY\n",
+        "    table_name\n",
+        "  HAVING\n",
+        "    COUNT(DISTINCT table_catalog) > 1\n",
+        "),\n",
+        "dup_tables AS (\n",
+        "  SELECT\n",
+        "    t.*\n",
+        "  FROM\n",
+        "    all_tables t\n",
+        "      JOIN dup_names d\n",
+        "        ON t.table_name = d.table_name\n",
+        "),\n",
+        "schema_sigs AS (\n",
+        "  SELECT\n",
+        "    table_catalog,\n",
+        "    table_schema,\n",
+        "    table_name,\n",
+        "    ARRAY_JOIN(\n",
+        "      SORT_ARRAY(COLLECT_LIST(CONCAT(column_name, ':', full_data_type))),\n",
+        "      '|'\n",
+        "    ) AS schema_signature\n",
+        "  FROM\n",
+        "    system.information_schema.columns c\n",
+        "  WHERE\n",
+        "    EXISTS (\n",
+        "      SELECT\n",
+        "        1\n",
+        "      FROM\n",
+        "        dup_names d\n",
+        "      WHERE\n",
+        "        d.table_name = c.table_name\n",
+        "    )\n",
+        "    AND c.table_catalog != 'system'\n",
+        "  GROUP BY\n",
+        "    table_catalog,\n",
+        "    table_schema,\n",
+        "    table_name\n",
+        "),\n",
+        "schema_match AS (\n",
+        "  SELECT\n",
+        "    table_name,\n",
+        "    CASE\n",
+        "      WHEN COUNT(DISTINCT schema_signature) = 1 THEN 'Yes'\n",
+        "      ELSE 'No'\n",
+        "    END AS schemas_identical\n",
+        "  FROM\n",
+        "    schema_sigs\n",
+        "  GROUP BY\n",
+        "    table_name\n",
+        "),\n",
+        "last_read AS (\n",
+        "  SELECT\n",
+        "    source_table_full_name AS full_table_name,\n",
+        "    MAX(event_time) AS last_read_at\n",
+        "  FROM\n",
+        "    system.access.table_lineage\n",
+        "  WHERE\n",
+        "    source_table_full_name IS NOT NULL\n",
+        "  GROUP BY\n",
+        "    source_table_full_name\n",
+        "),\n",
+        "last_write AS (\n",
+        "  SELECT\n",
+        "    target_table_full_name AS full_table_name,\n",
+        "    MAX(event_time) AS last_written_at\n",
+        "  FROM\n",
+        "    system.access.table_lineage\n",
+        "  WHERE\n",
+        "    target_table_full_name IS NOT NULL\n",
+        "  GROUP BY\n",
+        "    target_table_full_name\n",
+        "),\n",
+        "activity AS (\n",
+        "  SELECT\n",
+        "    dt.full_table_name,\n",
+        "    dt.table_name,\n",
+        "    GREATEST(\n",
+        "      COALESCE(lr.last_read_at, TIMESTAMP '1970-01-01'),\n",
+        "      COALESCE(lw.last_written_at, TIMESTAMP '1970-01-01')\n",
+        "    ) AS last_used_at\n",
+        "  FROM\n",
+        "    dup_tables dt\n",
+        "      LEFT JOIN last_read lr\n",
+        "        ON dt.full_table_name = lr.full_table_name\n",
+        "      LEFT JOIN last_write lw\n",
+        "        ON dt.full_table_name = lw.full_table_name\n",
+        ")\n",
+        "SELECT\n",
+        "  COUNT(*) AS value\n",
+        "FROM\n",
+        "  activity a\n",
+        "    JOIN schema_match sm\n",
+        "      ON a.table_name = sm.table_name\n",
+        "WHERE\n",
+        "  a.last_used_at < CURRENT_TIMESTAMP() - INTERVAL 30 DAYS\n",
+        "  AND sm.schemas_identical = 'Yes'"
+      ]
+    },
+    {
+      "name": "prev_stale_count",
+      "displayName": "Prev — Stale Duplicates Count",
+      "queryLines": [
+        "WITH all_tables AS (\n",
+        "  SELECT\n",
+        "    table_catalog,\n",
+        "    table_schema,\n",
+        "    table_name,\n",
+        "    CONCAT(table_catalog, '.', table_schema, '.', table_name) AS full_table_name\n",
+        "  FROM\n",
+        "    system.information_schema.tables\n",
+        "  WHERE\n",
+        "    table_schema != 'information_schema'\n",
+        "    AND table_type NOT IN ('VIEW', 'FOREIGN')\n",
+        "    AND table_catalog != 'system'\n",
+        "    AND NOT (\n",
+        "      LOWER(table_name) LIKE '%audit%'\n",
+        "      OR LOWER(table_name) RLIKE '(_log$|_log_|_logs)'\n",
+        "      OR LOWER(table_name) LIKE '%metadata%'\n",
+        "      OR LOWER(table_name) LIKE '%bad_records%'\n",
+        "      OR LOWER(table_name) LIKE '%config%'\n",
+        "    )\n",
+        "),\n",
+        "dup_names AS (\n",
+        "  SELECT\n",
+        "    table_name\n",
+        "  FROM\n",
+        "    all_tables\n",
+        "  GROUP BY\n",
+        "    table_name\n",
+        "  HAVING\n",
+        "    COUNT(DISTINCT table_catalog) > 1\n",
+        "),\n",
+        "dup_tables AS (\n",
+        "  SELECT\n",
+        "    t.*\n",
+        "  FROM\n",
+        "    all_tables t\n",
+        "      JOIN dup_names d\n",
+        "        ON t.table_name = d.table_name\n",
+        "),\n",
+        "last_read AS (\n",
+        "  SELECT\n",
+        "    source_table_full_name AS full_table_name,\n",
+        "    MAX(event_time) AS last_read_at\n",
+        "  FROM\n",
+        "    system.access.table_lineage\n",
+        "  WHERE\n",
+        "    source_table_full_name IS NOT NULL\n",
+        "  GROUP BY\n",
+        "    source_table_full_name\n",
+        "),\n",
+        "last_write AS (\n",
+        "  SELECT\n",
+        "    target_table_full_name AS full_table_name,\n",
+        "    MAX(event_time) AS last_written_at\n",
+        "  FROM\n",
+        "    system.access.table_lineage\n",
+        "  WHERE\n",
+        "    target_table_full_name IS NOT NULL\n",
+        "  GROUP BY\n",
+        "    target_table_full_name\n",
+        "),\n",
+        "activity AS (\n",
+        "  SELECT\n",
+        "    dt.full_table_name,\n",
+        "    GREATEST(\n",
+        "      COALESCE(lr.last_read_at, TIMESTAMP '1970-01-01'),\n",
+        "      COALESCE(lw.last_written_at, TIMESTAMP '1970-01-01')\n",
+        "    ) AS last_used_at\n",
+        "  FROM\n",
+        "    dup_tables dt\n",
+        "      LEFT JOIN last_read lr\n",
+        "        ON dt.full_table_name = lr.full_table_name\n",
+        "      LEFT JOIN last_write lw\n",
+        "        ON dt.full_table_name = lw.full_table_name\n",
+        ")\n",
+        "SELECT\n",
+        "  COUNT(*) AS value\n",
+        "FROM\n",
+        "  activity\n",
+        "WHERE\n",
+        "  last_used_at < CURRENT_TIMESTAMP() - INTERVAL 30 DAYS"
+      ]
+    },
+    {
+      "name": "prev_dup_names_count",
+      "displayName": "Prev — Dup Table Names Count",
+      "queryLines": [
+        "WITH all_tables AS (\n",
+        "  SELECT\n",
+        "    table_catalog,\n",
+        "    table_schema,\n",
+        "    table_name\n",
+        "  FROM\n",
+        "    system.information_schema.tables\n",
+        "  WHERE\n",
+        "    table_schema != 'information_schema'\n",
+        "    AND table_type NOT IN ('VIEW', 'FOREIGN')\n",
+        "    AND table_catalog != 'system'\n",
+        "    AND NOT (\n",
+        "      LOWER(table_name) LIKE '%audit%'\n",
+        "      OR LOWER(table_name) RLIKE '(_log$|_log_|_logs)'\n",
+        "      OR LOWER(table_name) LIKE '%metadata%'\n",
+        "      OR LOWER(table_name) LIKE '%bad_records%'\n",
+        "      OR LOWER(table_name) LIKE '%config%'\n",
+        "    )\n",
+        "),\n",
+        "dup_names AS (\n",
+        "  SELECT\n",
+        "    table_name\n",
+        "  FROM\n",
+        "    all_tables\n",
+        "  GROUP BY\n",
+        "    table_name\n",
+        "  HAVING\n",
+        "    COUNT(DISTINCT table_catalog) > 1\n",
+        ")\n",
+        "SELECT\n",
+        "  COUNT(*) AS value\n",
+        "FROM\n",
+        "  dup_names"
+      ]
+    },
+    {
+      "name": "prev_dups_per_catalog",
+      "displayName": "Prev — Duplicates per Catalog",
+      "queryLines": [
+        "WITH all_tables AS (\n",
+        "  SELECT\n",
+        "    table_catalog,\n",
+        "    table_schema,\n",
+        "    table_name\n",
+        "  FROM\n",
+        "    system.information_schema.tables\n",
+        "  WHERE\n",
+        "    table_schema != 'information_schema'\n",
+        "    AND table_type NOT IN ('VIEW', 'FOREIGN')\n",
+        "    AND table_catalog != 'system'\n",
+        "    AND NOT (\n",
+        "      LOWER(table_name) LIKE '%audit%'\n",
+        "      OR LOWER(table_name) RLIKE '(_log$|_log_|_logs)'\n",
+        "      OR LOWER(table_name) LIKE '%metadata%'\n",
+        "      OR LOWER(table_name) LIKE '%bad_records%'\n",
+        "      OR LOWER(table_name) LIKE '%config%'\n",
+        "    )\n",
+        "),\n",
+        "dup_names AS (\n",
+        "  SELECT\n",
+        "    table_name\n",
+        "  FROM\n",
+        "    all_tables\n",
+        "  GROUP BY\n",
+        "    table_name\n",
+        "  HAVING\n",
+        "    COUNT(DISTINCT table_catalog) > 1\n",
+        ")\n",
+        "SELECT\n",
+        "  t.table_catalog,\n",
+        "  COUNT(*) AS duplicate_count\n",
+        "FROM\n",
+        "  all_tables t\n",
+        "    JOIN dup_names d\n",
+        "      ON t.table_name = d.table_name\n",
+        "GROUP BY\n",
+        "  t.table_catalog\n",
+        "ORDER BY\n",
+        "  duplicate_count DESC"
+      ]
+    },
+    {
+      "name": "prev_total_instances",
+      "displayName": "Prev — Total Instances Count",
+      "queryLines": [
+        "WITH all_tables AS (\n",
+        "  SELECT\n",
+        "    table_catalog,\n",
+        "    table_schema,\n",
+        "    table_name\n",
+        "  FROM\n",
+        "    system.information_schema.tables\n",
+        "  WHERE\n",
+        "    table_schema != 'information_schema'\n",
+        "    AND table_type NOT IN ('VIEW', 'FOREIGN')\n",
+        "    AND table_catalog != 'system'\n",
+        "    AND NOT (\n",
+        "      LOWER(table_name) LIKE '%audit%'\n",
+        "      OR LOWER(table_name) RLIKE '(_log$|_log_|_logs)'\n",
+        "      OR LOWER(table_name) LIKE '%metadata%'\n",
+        "      OR LOWER(table_name) LIKE '%bad_records%'\n",
+        "      OR LOWER(table_name) LIKE '%config%'\n",
+        "    )\n",
+        "),\n",
+        "dup_names AS (\n",
+        "  SELECT\n",
+        "    table_name\n",
+        "  FROM\n",
+        "    all_tables\n",
+        "  GROUP BY\n",
+        "    table_name\n",
+        "  HAVING\n",
+        "    COUNT(DISTINCT table_catalog) > 1\n",
+        ")\n",
+        "SELECT\n",
+        "  COUNT(*) AS value\n",
+        "FROM\n",
+        "  all_tables t\n",
+        "    JOIN dup_names d\n",
+        "      ON t.table_name = d.table_name"
+      ]
+    },
+    {
+      "name": "prev_top_owners",
+      "displayName": "Prev — Top 10 Owners",
+      "queryLines": [
+        "WITH all_tables AS (\n",
+        "  SELECT\n",
+        "    table_catalog,\n",
+        "    table_schema,\n",
+        "    table_name,\n",
+        "    table_owner\n",
+        "  FROM\n",
+        "    system.information_schema.tables\n",
+        "  WHERE\n",
+        "    table_schema != 'information_schema'\n",
+        "    AND table_type NOT IN ('VIEW', 'FOREIGN')\n",
+        "    AND table_catalog != 'system'\n",
+        "    AND NOT (\n",
+        "      LOWER(table_name) LIKE '%audit%'\n",
+        "      OR LOWER(table_name) RLIKE '(_log$|_log_|_logs)'\n",
+        "      OR LOWER(table_name) LIKE '%metadata%'\n",
+        "      OR LOWER(table_name) LIKE '%bad_records%'\n",
+        "      OR LOWER(table_name) LIKE '%config%'\n",
+        "    )\n",
+        "),\n",
+        "dup_names AS (\n",
+        "  SELECT\n",
+        "    table_name\n",
+        "  FROM\n",
+        "    all_tables\n",
+        "  GROUP BY\n",
+        "    table_name\n",
+        "  HAVING\n",
+        "    COUNT(DISTINCT table_catalog) > 1\n",
+        ")\n",
+        "SELECT\n",
+        "  t.table_owner,\n",
+        "  COUNT(*) AS duplicate_count\n",
+        "FROM\n",
+        "  all_tables t\n",
+        "    JOIN dup_names d\n",
+        "      ON t.table_name = d.table_name\n",
+        "GROUP BY\n",
+        "  t.table_owner\n",
+        "ORDER BY\n",
+        "  duplicate_count DESC\n",
+        "LIMIT 10"
+      ]
+    },
+    {
+      "name": "prev_dups_over_time",
+      "displayName": "Prev — Duplicates Over Time",
+      "queryLines": [
+        "WITH all_tables AS (\n",
+        "  SELECT\n",
+        "    table_catalog,\n",
+        "    table_schema,\n",
+        "    table_name,\n",
+        "    created\n",
+        "  FROM\n",
+        "    system.information_schema.tables\n",
+        "  WHERE\n",
+        "    table_schema != 'information_schema'\n",
+        "    AND table_type NOT IN ('VIEW', 'FOREIGN')\n",
+        "    AND table_catalog != 'system'\n",
+        "    AND NOT (\n",
+        "      LOWER(table_name) LIKE '%audit%'\n",
+        "      OR LOWER(table_name) RLIKE '(_log$|_log_|_logs)'\n",
+        "      OR LOWER(table_name) LIKE '%metadata%'\n",
+        "      OR LOWER(table_name) LIKE '%bad_records%'\n",
+        "      OR LOWER(table_name) LIKE '%config%'\n",
+        "    )\n",
+        "),\n",
+        "dup_names AS (\n",
+        "  SELECT\n",
+        "    table_name\n",
+        "  FROM\n",
+        "    all_tables\n",
+        "  GROUP BY\n",
+        "    table_name\n",
+        "  HAVING\n",
+        "    COUNT(DISTINCT table_catalog) > 1\n",
+        ")\n",
+        "SELECT\n",
+        "  DATE_TRUNC('MONTH', t.created) AS month,\n",
+        "  COUNT(*) AS tables_created\n",
+        "FROM\n",
+        "  all_tables t\n",
+        "    JOIN dup_names d\n",
+        "      ON t.table_name = d.table_name\n",
+        "GROUP BY\n",
+        "  DATE_TRUNC('MONTH', t.created)\n",
+        "ORDER BY\n",
+        "  month"
+      ]
+    },
+    {
+      "name": "prev_schema_match_counters",
+      "displayName": "Prev — Schema Match Counters",
+      "queryLines": [
+        "WITH schema_sigs AS (\n",
+        "  SELECT\n",
+        "    c.table_catalog,\n",
+        "    c.table_schema,\n",
+        "    c.table_name,\n",
+        "    ARRAY_JOIN(\n",
+        "      SORT_ARRAY(COLLECT_LIST(CONCAT(c.column_name, ':', c.full_data_type))),\n",
+        "      '|'\n",
+        "    ) AS schema_signature\n",
+        "  FROM\n",
+        "    system.information_schema.columns c\n",
+        "  WHERE\n",
+        "    c.table_schema != 'information_schema'\n",
+        "    AND c.table_catalog != 'system'\n",
+        "    AND NOT (\n",
+        "      LOWER(c.table_name) LIKE '%audit%'\n",
+        "      OR LOWER(c.table_name) RLIKE '(_log$|_log_|_logs)'\n",
+        "      OR LOWER(c.table_name) LIKE '%metadata%'\n",
+        "      OR LOWER(c.table_name) LIKE '%bad_records%'\n",
+        "      OR LOWER(c.table_name) LIKE '%config%'\n",
+        "    )\n",
+        "  GROUP BY\n",
+        "    c.table_catalog,\n",
+        "    c.table_schema,\n",
+        "    c.table_name\n",
+        "),\n",
+        "matching_schemas AS (\n",
+        "  SELECT\n",
+        "    schema_signature,\n",
+        "    COUNT(*) AS tables_in_group\n",
+        "  FROM\n",
+        "    schema_sigs\n",
+        "  GROUP BY\n",
+        "    schema_signature\n",
+        "  HAVING\n",
+        "    COUNT(DISTINCT table_catalog) > 1\n",
+        ")\n",
+        "SELECT\n",
+        "  COUNT(*) AS total_schema_groups,\n",
+        "  SUM(tables_in_group) AS total_tables_involved\n",
+        "FROM\n",
+        "  matching_schemas"
+      ]
+    },
+    {
+      "name": "prev_all_dup_detail",
+      "displayName": "Prev — All Dup Detail",
+      "queryLines": [
+        "WITH all_tables AS (\n",
+        "  SELECT\n",
+        "    table_catalog,\n",
+        "    table_schema,\n",
+        "    table_name,\n",
+        "    table_owner,\n",
+        "    created,\n",
+        "    last_altered,\n",
+        "    CONCAT(table_catalog, '.', table_schema, '.', table_name) AS full_table_name\n",
+        "  FROM\n",
+        "    system.information_schema.tables\n",
+        "  WHERE\n",
+        "    table_schema != 'information_schema'\n",
+        "    AND table_type NOT IN ('VIEW', 'FOREIGN')\n",
+        "    AND table_catalog != 'system'\n",
+        "    AND NOT (\n",
+        "      LOWER(table_name) LIKE '%audit%'\n",
+        "      OR LOWER(table_name) RLIKE '(_log$|_log_|_logs)'\n",
+        "      OR LOWER(table_name) LIKE '%metadata%'\n",
+        "      OR LOWER(table_name) LIKE '%bad_records%'\n",
+        "      OR LOWER(table_name) LIKE '%config%'\n",
+        "    )\n",
+        "),\n",
+        "dup_names AS (\n",
+        "  SELECT\n",
+        "    table_name\n",
+        "  FROM\n",
+        "    all_tables\n",
+        "  GROUP BY\n",
+        "    table_name\n",
+        "  HAVING\n",
+        "    COUNT(DISTINCT table_catalog) > 1\n",
+        "),\n",
+        "dup_tables AS (\n",
+        "  SELECT\n",
+        "    t.*\n",
+        "  FROM\n",
+        "    all_tables t\n",
+        "      JOIN dup_names d\n",
+        "        ON t.table_name = d.table_name\n",
+        "),\n",
+        "schema_sigs AS (\n",
+        "  SELECT\n",
+        "    table_catalog,\n",
+        "    table_schema,\n",
+        "    table_name,\n",
+        "    ARRAY_JOIN(\n",
+        "      SORT_ARRAY(COLLECT_LIST(CONCAT(column_name, ':', full_data_type))),\n",
+        "      '|'\n",
+        "    ) AS schema_signature,\n",
+        "    CONCAT(\n",
+        "      '{',\n",
+        "      ARRAY_JOIN(\n",
+        "        SORT_ARRAY(COLLECT_LIST(CONCAT('\"', column_name, '\": \"', full_data_type, '\"'))),\n",
+        "        ', '\n",
+        "      ),\n",
+        "      '}'\n",
+        "    ) AS table_schema_def\n",
+        "  FROM\n",
+        "    system.information_schema.columns c\n",
+        "  WHERE\n",
+        "    EXISTS (\n",
+        "      SELECT\n",
+        "        1\n",
+        "      FROM\n",
+        "        dup_names d\n",
+        "      WHERE\n",
+        "        d.table_name = c.table_name\n",
+        "    )\n",
+        "    AND c.table_catalog != 'system'\n",
+        "  GROUP BY\n",
+        "    table_catalog,\n",
+        "    table_schema,\n",
+        "    table_name\n",
+        "),\n",
+        "schema_match AS (\n",
+        "  SELECT\n",
+        "    table_name,\n",
+        "    CASE\n",
+        "      WHEN COUNT(DISTINCT schema_signature) = 1 THEN 'Yes'\n",
+        "      ELSE 'No'\n",
+        "    END AS schemas_identical\n",
+        "  FROM\n",
+        "    schema_sigs\n",
+        "  GROUP BY\n",
+        "    table_name\n",
+        "),\n",
+        "last_read AS (\n",
+        "  SELECT\n",
+        "    source_table_full_name AS full_table_name,\n",
+        "    MAX(event_time) AS last_read_at\n",
+        "  FROM\n",
+        "    system.access.table_lineage\n",
+        "  WHERE\n",
+        "    source_table_full_name IS NOT NULL\n",
+        "  GROUP BY\n",
+        "    source_table_full_name\n",
+        "),\n",
+        "last_write AS (\n",
+        "  SELECT\n",
+        "    target_table_full_name AS full_table_name,\n",
+        "    MAX(event_time) AS last_written_at\n",
+        "  FROM\n",
+        "    system.access.table_lineage\n",
+        "  WHERE\n",
+        "    target_table_full_name IS NOT NULL\n",
+        "  GROUP BY\n",
+        "    target_table_full_name\n",
+        "),\n",
+        "schema_presence AS (\n",
+        "  SELECT\n",
+        "    dt.table_name,\n",
+        "    MAX(\n",
+        "      CASE\n",
+        "        WHEN\n",
+        "          LOWER(dt.table_schema) LIKE '%bronze%'\n",
+        "          OR LOWER(dt.table_schema) LIKE '%gold%'\n",
+        "        THEN\n",
+        "          1\n",
+        "        ELSE 0\n",
+        "      END\n",
+        "    ) AS has_bronze_gold\n",
+        "  FROM\n",
+        "    dup_tables dt\n",
+        "      JOIN schema_match sm\n",
+        "        ON dt.table_name = sm.table_name\n",
+        "  WHERE\n",
+        "    sm.schemas_identical = 'Yes'\n",
+        "  GROUP BY\n",
+        "    dt.table_name\n",
+        ")\n",
+        "SELECT\n",
+        "  dt.table_name,\n",
+        "  dt.table_catalog AS catalog,\n",
+        "  dt.table_schema AS schema_name,\n",
+        "  dt.full_table_name,\n",
+        "  dt.table_owner AS owner,\n",
+        "  DATE_FORMAT(dt.created, 'MMM dd, yyyy') AS created_on,\n",
+        "  dt.last_altered,\n",
+        "  lr.last_read_at,\n",
+        "  lw.last_written_at,\n",
+        "  ss.table_schema_def,\n",
+        "  COALESCE(sm.schemas_identical, 'N/A') AS schema_match,\n",
+        "  CASE\n",
+        "    WHEN\n",
+        "      COALESCE(sm.schemas_identical, 'N/A') = 'Yes'\n",
+        "      AND LOWER(dt.table_schema) = 'default'\n",
+        "      AND COALESCE(sp.has_bronze_gold, 0) = 1\n",
+        "    THEN\n",
+        "      'Yes'\n",
+        "    WHEN\n",
+        "      COALESCE(sm.schemas_identical, 'N/A') = 'Yes'\n",
+        "      AND (\n",
+        "        LOWER(dt.table_schema) LIKE '%bronze%'\n",
+        "        OR LOWER(dt.table_schema) = 'default'\n",
+        "      )\n",
+        "      AND (\n",
+        "        COALESCE(lr.last_read_at, TIMESTAMP '1970-01-01') < CURRENT_TIMESTAMP() - INTERVAL 30 DAYS\n",
+        "        OR COALESCE(lw.last_written_at, TIMESTAMP '1970-01-01')\n",
+        "          < CURRENT_TIMESTAMP() - INTERVAL 30 DAYS\n",
+        "      )\n",
+        "    THEN\n",
+        "      'Yes'\n",
+        "    ELSE 'No'\n",
+        "  END AS duplicate_table_flag\n",
+        "FROM\n",
+        "  dup_tables dt\n",
+        "    LEFT JOIN schema_match sm\n",
+        "      ON dt.table_name = sm.table_name\n",
+        "    LEFT JOIN schema_sigs ss\n",
+        "      ON dt.table_catalog = ss.table_catalog\n",
+        "      AND dt.table_schema = ss.table_schema\n",
+        "      AND dt.table_name = ss.table_name\n",
+        "    LEFT JOIN last_read lr\n",
+        "      ON dt.full_table_name = lr.full_table_name\n",
+        "    LEFT JOIN last_write lw\n",
+        "      ON dt.full_table_name = lw.full_table_name\n",
+        "    LEFT JOIN schema_presence sp\n",
+        "      ON dt.table_name = sp.table_name\n",
+        "ORDER BY\n",
+        "  dt.table_name,\n",
+        "  dt.table_catalog"
+      ],
+      "columns": [
+        {
+          "displayName": "Last Updated",
+          "description": "",
+          "expression": "CASE\n  WHEN DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) = 0 THEN 'today'\n  WHEN DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) = 1 THEN 'a day ago'\n  WHEN DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) < 7 THEN CONCAT(STRING(DATEDIFF(CURRENT_DATE(), DATE(`last_altered`))), ' days ago')\n  WHEN DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) < 14 THEN 'a week ago'\n  WHEN DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) < 30 THEN CONCAT(STRING(FLOOR(DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) / 7)), ' weeks ago')\n  WHEN DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) < 60 THEN 'a month ago'\n  WHEN DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) < 365 THEN CONCAT(STRING(FLOOR(DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) / 30)), ' months ago')\n  WHEN DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) < 730 THEN 'a year ago'\n  ELSE CONCAT(STRING(FLOOR(DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) / 365)), ' years ago')\nEND"
+        },
+        {
+          "displayName": "rule_applied",
+          "description": "Explains why a table was flagged as duplicate based on schema match, layer, and staleness rules",
+          "expression": "CASE\n  WHEN `duplicate_table_flag` = 'No' THEN 'Not flagged as duplicate'\n  WHEN `duplicate_table_flag` = 'Yes' AND LOWER(`schema_name`) = 'default' AND (DATEDIFF(CURRENT_DATE(), COALESCE(DATE(`last_read_at`), DATE('1970-01-01'))) > 30 OR DATEDIFF(CURRENT_DATE(), COALESCE(DATE(`last_written_at`), DATE('1970-01-01'))) > 30) THEN 'Schema matched + default schema with bronze/gold counterpart + stale (30+ days)'\n  WHEN `duplicate_table_flag` = 'Yes' AND LOWER(`schema_name`) = 'default' THEN 'Schema matched + default schema table also exists in bronze/gold layer'\n  WHEN `duplicate_table_flag` = 'Yes' AND LOWER(`schema_name`) LIKE '%bronze%' THEN 'Schema matched + bronze layer table is stale (30+ days)'\n  ELSE 'Flagged — rule details unavailable'\nEND"
+        }
+      ]
+    },
+    {
+      "name": "prev_schema_match_kpi",
+      "displayName": "Prev — Schema Match KPI",
+      "queryLines": [
+        "WITH all_tables AS (\n",
+        "  SELECT\n",
+        "    table_catalog,\n",
+        "    table_schema,\n",
+        "    table_name,\n",
+        "    table_owner,\n",
+        "    created,\n",
+        "    last_altered,\n",
+        "    CONCAT(table_catalog, '.', table_schema) AS catalog_schema,\n",
+        "    CONCAT(table_catalog, '.', table_schema, '.', table_name) AS full_table_name\n",
+        "  FROM\n",
+        "    system.information_schema.tables\n",
+        "  WHERE\n",
+        "    table_schema != 'information_schema'\n",
+        "    AND table_type NOT IN ('VIEW', 'FOREIGN')\n",
+        "    AND table_catalog != 'system'\n",
+        "    AND NOT (\n",
+        "      LOWER(table_name) LIKE '%audit%'\n",
+        "      OR LOWER(table_name) RLIKE '(_log$|_log_|_logs)'\n",
+        "      OR LOWER(table_name) LIKE '%metadata%'\n",
+        "      OR LOWER(table_name) LIKE '%bad_records%'\n",
+        "      OR LOWER(table_name) LIKE '%config%'\n",
+        "    )\n",
+        "),\n",
+        "schema_sigs AS (\n",
+        "  SELECT\n",
+        "    c.table_catalog,\n",
+        "    c.table_schema,\n",
+        "    c.table_name,\n",
+        "    ARRAY_JOIN(\n",
+        "      SORT_ARRAY(COLLECT_LIST(CONCAT(c.column_name, ':', c.full_data_type))),\n",
+        "      '|'\n",
+        "    ) AS schema_signature,\n",
+        "    CONCAT(\n",
+        "      '{',\n",
+        "      ARRAY_JOIN(\n",
+        "        SORT_ARRAY(COLLECT_LIST(CONCAT('\"', c.column_name, '\": \"', c.full_data_type, '\"'))),\n",
+        "        ', '\n",
+        "      ),\n",
+        "      '}'\n",
+        "    ) AS table_schema_def\n",
+        "  FROM\n",
+        "    system.information_schema.columns c\n",
+        "  WHERE\n",
+        "    c.table_schema != 'information_schema'\n",
+        "    AND c.table_catalog != 'system'\n",
+        "    AND NOT (\n",
+        "      LOWER(c.table_name) LIKE '%audit%'\n",
+        "      OR LOWER(c.table_name) RLIKE '(_log$|_log_|_logs)'\n",
+        "      OR LOWER(c.table_name) LIKE '%metadata%'\n",
+        "      OR LOWER(c.table_name) LIKE '%bad_records%'\n",
+        "      OR LOWER(c.table_name) LIKE '%config%'\n",
+        "    )\n",
+        "  GROUP BY\n",
+        "    c.table_catalog,\n",
+        "    c.table_schema,\n",
+        "    c.table_name\n",
+        "),\n",
+        "matching_schemas AS (\n",
+        "  SELECT\n",
+        "    schema_signature,\n",
+        "    COUNT(DISTINCT table_catalog) AS catalog_match_count,\n",
+        "    COUNT(*) AS total_match_instances\n",
+        "  FROM\n",
+        "    schema_sigs\n",
+        "  GROUP BY\n",
+        "    schema_signature\n",
+        "  HAVING\n",
+        "    COUNT(DISTINCT table_catalog) > 1\n",
+        "),\n",
+        "matched_tables AS (\n",
+        "  SELECT\n",
+        "    ss.*\n",
+        "  FROM\n",
+        "    schema_sigs ss\n",
+        "      JOIN matching_schemas ms\n",
+        "        ON ss.schema_signature = ms.schema_signature\n",
+        "),\n",
+        "last_read AS (\n",
+        "  SELECT\n",
+        "    source_table_full_name AS full_table_name,\n",
+        "    MAX(event_time) AS last_read_at\n",
+        "  FROM\n",
+        "    system.access.table_lineage\n",
+        "  WHERE\n",
+        "    source_table_full_name IS NOT NULL\n",
+        "    AND event_date >= CURRENT_DATE() - INTERVAL 90 DAYS\n",
+        "  GROUP BY\n",
+        "    source_table_full_name\n",
+        "),\n",
+        "last_write AS (\n",
+        "  SELECT\n",
+        "    target_table_full_name AS full_table_name,\n",
+        "    MAX(event_time) AS last_written_at\n",
+        "  FROM\n",
+        "    system.access.table_lineage\n",
+        "  WHERE\n",
+        "    target_table_full_name IS NOT NULL\n",
+        "    AND event_date >= CURRENT_DATE() - INTERVAL 90 DAYS\n",
+        "  GROUP BY\n",
+        "    target_table_full_name\n",
+        ")\n",
+        "SELECT\n",
+        "  DENSE_RANK() OVER (ORDER BY mt.schema_signature) AS schema_group_id,\n",
+        "  mt.table_name,\n",
+        "  at.table_catalog AS catalog,\n",
+        "  at.catalog_schema,\n",
+        "  at.table_owner AS owner,\n",
+        "  DATE_FORMAT(at.created, 'MMM dd, yyyy') AS created_on,\n",
+        "  at.last_altered,\n",
+        "  lr.last_read_at,\n",
+        "  lw.last_written_at,\n",
+        "  mt.table_schema_def,\n",
+        "  ms.catalog_match_count,\n",
+        "  ms.total_match_instances\n",
+        "FROM\n",
+        "  matched_tables mt\n",
+        "    JOIN matching_schemas ms\n",
+        "      ON mt.schema_signature = ms.schema_signature\n",
+        "    JOIN all_tables at\n",
+        "      ON mt.table_catalog = at.table_catalog\n",
+        "      AND mt.table_schema = at.table_schema\n",
+        "      AND mt.table_name = at.table_name\n",
+        "    LEFT JOIN last_read lr\n",
+        "      ON at.full_table_name = lr.full_table_name\n",
+        "    LEFT JOIN last_write lw\n",
+        "      ON at.full_table_name = lw.full_table_name\n",
+        "ORDER BY\n",
+        "  schema_group_id,\n",
+        "  at.catalog_schema"
+      ],
+      "columns": [
+        {
+          "displayName": "Last Updated",
+          "description": "",
+          "expression": "CASE\n  WHEN DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) = 0 THEN 'today'\n  WHEN DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) = 1 THEN 'a day ago'\n  WHEN DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) < 7 THEN CONCAT(STRING(DATEDIFF(CURRENT_DATE(), DATE(`last_altered`))), ' days ago')\n  WHEN DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) < 14 THEN 'a week ago'\n  WHEN DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) < 30 THEN CONCAT(STRING(FLOOR(DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) / 7)), ' weeks ago')\n  WHEN DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) < 60 THEN 'a month ago'\n  WHEN DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) < 365 THEN CONCAT(STRING(FLOOR(DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) / 30)), ' months ago')\n  WHEN DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) < 730 THEN 'a year ago'\n  ELSE CONCAT(STRING(FLOOR(DATEDIFF(CURRENT_DATE(), DATE(`last_altered`)) / 365)), ' years ago')\nEND"
+        }
+      ]
+    },
+    {
+      "name": "prev_schema_match_dist",
+      "displayName": "Prev — Schema Match Distribution",
+      "queryLines": [
+        "WITH all_tables AS (\n",
+        "  SELECT\n",
+        "    table_catalog,\n",
+        "    table_schema,\n",
+        "    table_name\n",
+        "  FROM\n",
+        "    system.information_schema.tables\n",
+        "  WHERE\n",
+        "    table_schema != 'information_schema'\n",
+        "    AND table_type NOT IN ('VIEW', 'FOREIGN')\n",
+        "    AND table_catalog != 'system'\n",
+        "    AND NOT (\n",
+        "      LOWER(table_name) LIKE '%audit%'\n",
+        "      OR LOWER(table_name) RLIKE '(_log$|_log_|_logs)'\n",
+        "      OR LOWER(table_name) LIKE '%metadata%'\n",
+        "      OR LOWER(table_name) LIKE '%bad_records%'\n",
+        "      OR LOWER(table_name) LIKE '%config%'\n",
+        "    )\n",
+        "),\n",
+        "dup_names AS (\n",
+        "  SELECT\n",
+        "    table_name\n",
+        "  FROM\n",
+        "    all_tables\n",
+        "  GROUP BY\n",
+        "    table_name\n",
+        "  HAVING\n",
+        "    COUNT(DISTINCT table_catalog) > 1\n",
+        "),\n",
+        "schema_sigs AS (\n",
+        "  SELECT\n",
+        "    table_catalog,\n",
+        "    table_schema,\n",
+        "    table_name,\n",
+        "    ARRAY_JOIN(\n",
+        "      SORT_ARRAY(COLLECT_LIST(CONCAT(column_name, ':', full_data_type))),\n",
+        "      '|'\n",
+        "    ) AS schema_signature\n",
+        "  FROM\n",
+        "    system.information_schema.columns c\n",
+        "  WHERE\n",
+        "    EXISTS (\n",
+        "      SELECT\n",
+        "        1\n",
+        "      FROM\n",
+        "        dup_names d\n",
+        "      WHERE\n",
+        "        d.table_name = c.table_name\n",
+        "    )\n",
+        "    AND c.table_catalog != 'system'\n",
+        "  GROUP BY\n",
+        "    table_catalog,\n",
+        "    table_schema,\n",
+        "    table_name\n",
+        "),\n",
+        "schema_match AS (\n",
+        "  SELECT\n",
+        "    table_name,\n",
+        "    CASE\n",
+        "      WHEN COUNT(DISTINCT schema_signature) = 1 THEN 'Yes'\n",
+        "      ELSE 'No'\n",
+        "    END AS schemas_identical\n",
+        "  FROM\n",
+        "    schema_sigs\n",
+        "  GROUP BY\n",
+        "    table_name\n",
+        ")\n",
+        "SELECT\n",
+        "  COALESCE(sm.schemas_identical, 'N/A') AS schema_status,\n",
+        "  COUNT(*) AS table_count\n",
+        "FROM\n",
+        "  dup_names d\n",
+        "    LEFT JOIN schema_match sm\n",
+        "      ON d.table_name = sm.table_name\n",
+        "GROUP BY\n",
+        "  COALESCE(sm.schemas_identical, 'N/A')"
+      ]
+    },
+    {
+      "name": "test_data_detail",
+      "displayName": "Test Data Detail",
+      "queryLines": [
+        "WITH suffixed_tables AS (\n",
+        "  SELECT\n",
+        "    t.table_catalog,\n",
+        "    t.table_schema,\n",
+        "    t.table_name,\n",
+        "    t.table_owner,\n",
+        "    t.created,\n",
+        "    t.last_altered,\n",
+        "    REGEXP_REPLACE(\n",
+        "      LOWER(t.table_name),\n",
+        "      '_(bkp|bckp|test|empty|version1|v1|v2|1|2)$',\n",
+        "      ''\n",
+        "    ) AS base_name,\n",
+        "    CASE\n",
+        "      WHEN LOWER(t.table_name) RLIKE '_bkp$' THEN '_bkp'\n",
+        "      WHEN LOWER(t.table_name) RLIKE '_bckp$' THEN '_bckp'\n",
+        "      WHEN LOWER(t.table_name) RLIKE '_test$' THEN '_test'\n",
+        "      WHEN LOWER(t.table_name) RLIKE '_empty$' THEN '_empty'\n",
+        "      WHEN LOWER(t.table_name) RLIKE '_version1$' THEN '_version1'\n",
+        "      WHEN LOWER(t.table_name) RLIKE '_v1$' THEN '_v1'\n",
+        "      WHEN LOWER(t.table_name) RLIKE '_v2$' THEN '_v2'\n",
+        "      WHEN LOWER(t.table_name) RLIKE '_1$' THEN '_1'\n",
+        "      WHEN LOWER(t.table_name) RLIKE '_2$' THEN '_2'\n",
+        "    END AS suffix_type,\n",
+        "    CONCAT(t.table_catalog, '.', t.table_schema, '.', t.table_name) AS full_table_name\n",
+        "  FROM\n",
+        "    system.information_schema.tables t\n",
+        "  WHERE\n",
+        "    t.table_schema != 'information_schema'\n",
+        "    AND t.table_type NOT IN ('VIEW', 'FOREIGN')\n",
+        "    AND t.table_catalog != 'system'\n",
+        "    AND LOWER(t.table_name) RLIKE '_(bkp|bckp|test|empty|version1|v1|v2|1|2)$'\n",
+        "),\n",
+        "all_tables AS (\n",
+        "  SELECT\n",
+        "    table_catalog,\n",
+        "    table_schema,\n",
+        "    LOWER(table_name) AS table_name\n",
+        "  FROM\n",
+        "    system.information_schema.tables\n",
+        "  WHERE\n",
+        "    table_schema != 'information_schema'\n",
+        "    AND table_type NOT IN ('VIEW', 'FOREIGN')\n",
+        "    AND table_catalog != 'system'\n",
+        ")\n",
+        "SELECT\n",
+        "  s.table_name,\n",
+        "  s.table_catalog AS anomaly_catalog,\n",
+        "  s.table_schema AS schema_name,\n",
+        "  s.base_name AS original_table,\n",
+        "  s.suffix_type,\n",
+        "  s.full_table_name,\n",
+        "  s.table_owner AS owner,\n",
+        "  DATE_FORMAT(s.created, 'MMM dd, yyyy') AS created_on,\n",
+        "  s.last_altered\n",
+        "FROM\n",
+        "  suffixed_tables s\n",
+        "    JOIN all_tables a\n",
+        "      ON s.table_catalog = a.table_catalog\n",
+        "      AND s.table_schema = a.table_schema\n",
+        "      AND s.base_name = a.table_name\n",
+        "ORDER BY\n",
+        "  s.table_catalog,\n",
+        "  s.table_schema,\n",
+        "  s.base_name"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "f0170a8b",
+      "displayName": "Global Filters",
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "c12045e7",
+      "displayName": "Table Naming Inconsistency Insights",
+      "layout": [
+        {
+          "widget": {
+            "name": "7dc22f85",
+            "multilineTextboxSpec": {
+              "lines": [
+                "<span style=\"font-size:24px\">**Catalog-wide Table Health & Similarity Insights**</span>\n",
+                "\n",
+                "*A unified view to monitor table usage, freshness, naming patterns, and identify potentially similar tables across the catalog. Excludes tables matching: audit, \\_log/\\_logs, metadata, bad_records, config.*"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "c6ee021c",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "prev_total_instances",
+                  "fields": [
+                    {
+                      "name": "value",
+                      "expression": "`value`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "TABLE COUNTS",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "value",
+                  "displayName": "Value"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "428e113c",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "prev_dup_names_count",
+                  "fields": [
+                    {
+                      "name": "value",
+                      "expression": "`value`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "DISTINCT TABLE COUNTS",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "value",
+                  "displayName": "Value"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "3327241c",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "prev_stale_count",
+                  "fields": [
+                    {
+                      "name": "value",
+                      "expression": "`value`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "STALE TABLE COUNTS (30+ days)",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "value",
+                  "displayName": "Value"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "69c0f2a4",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "prev_dups_per_catalog",
+                  "fields": [
+                    {
+                      "name": "table_catalog",
+                      "expression": "`table_catalog`"
+                    },
+                    {
+                      "name": "duplicate_count",
+                      "expression": "`duplicate_count`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "CATALOG-WIDE SIMILAR TABLES",
+                "showTitle": true
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "table_catalog",
+                  "displayName": "Catalog",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "duplicate_count",
+                  "displayName": "Duplicate Count",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "16c320a0",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "prev_schema_match_dist",
+                  "fields": [
+                    {
+                      "name": "table_count",
+                      "expression": "`table_count`"
+                    },
+                    {
+                      "name": "schema_status",
+                      "expression": "`schema_status`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "SCHEMA LEVEL DISTRIBUTION",
+                "showTitle": true
+              },
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "table_count",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Table Count"
+                },
+                "color": {
+                  "fieldName": "schema_status",
+                  "displayName": "Schema Status",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Yes",
+                        "color": "#2E7D32"
+                      },
+                      {
+                        "value": "No",
+                        "color": "#C62828"
+                      },
+                      {
+                        "value": "N/A",
+                        "color": "#9E9E9E"
+                      }
+                    ]
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 4,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "1eb84f10",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "prev_top_owners",
+                  "fields": [
+                    {
+                      "name": "table_owner",
+                      "expression": "`table_owner`"
+                    },
+                    {
+                      "name": "duplicate_count",
+                      "expression": "`duplicate_count`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "TOP 10 OWNERS BY SIMILAR TABLE COUNT",
+                "showTitle": true
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "table_owner",
+                  "displayName": "Owner",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "duplicate_count",
+                  "displayName": "Duplicate Count",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 10,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "1edb6f42",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "prev_dups_over_time",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "tables_created",
+                      "expression": "`tables_created`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "SIMILAR TABLES CREATED OVER TIME",
+                "showTitle": true
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "displayName": "Month",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "tables_created",
+                  "displayName": "Tables Created",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 10,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "8e13120e",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "prev_all_dup_detail",
+                  "fields": [
+                    {
+                      "name": "table_name",
+                      "expression": "`table_name`"
+                    },
+                    {
+                      "name": "catalog",
+                      "expression": "`catalog`"
+                    },
+                    {
+                      "name": "schema_name",
+                      "expression": "`schema_name`"
+                    },
+                    {
+                      "name": "owner",
+                      "expression": "`owner`"
+                    },
+                    {
+                      "name": "created_on",
+                      "expression": "`created_on`"
+                    },
+                    {
+                      "name": "last_altered",
+                      "expression": "`last_altered`"
+                    },
+                    {
+                      "name": "last_read_at",
+                      "expression": "`last_read_at`"
+                    },
+                    {
+                      "name": "last_written_at",
+                      "expression": "`last_written_at`"
+                    },
+                    {
+                      "name": "schema_match",
+                      "expression": "`schema_match`"
+                    },
+                    {
+                      "name": "duplicate_table_flag",
+                      "expression": "`duplicate_table_flag`"
+                    },
+                    {
+                      "name": "rule_applied",
+                      "expression": "`rule_applied`"
+                    }
+                  ],
+                  "filters": [
+                    {
+                      "expression": "`schema_match` IN ('Yes')"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "SCHEMA MATCHED TABLES",
+                "showTitle": true
+              },
+              "rowsPerPage": 25,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "table_name",
+                    "displayName": "Table Name"
+                  },
+                  {
+                    "fieldName": "catalog",
+                    "displayName": "Catalog"
+                  },
+                  {
+                    "fieldName": "schema_name",
+                    "displayName": "Schema"
+                  },
+                  {
+                    "fieldName": "owner",
+                    "displayName": "Owner"
+                  },
+                  {
+                    "fieldName": "created_on",
+                    "displayName": "Created On"
+                  },
+                  {
+                    "fieldName": "last_altered",
+                    "displayName": "Last Altered"
+                  },
+                  {
+                    "fieldName": "last_read_at",
+                    "displayName": "Last Read"
+                  },
+                  {
+                    "fieldName": "last_written_at",
+                    "displayName": "Last Written"
+                  },
+                  {
+                    "fieldName": "schema_match",
+                    "displayName": "Schema Match"
+                  },
+                  {
+                    "fieldName": "duplicate_table_flag",
+                    "displayName": "Duplicate Table Flag"
+                  },
+                  {
+                    "fieldName": "rule_applied",
+                    "displayName": "Rule Applied"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 16,
+            "width": 12,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "a53b1f97",
+            "queries": [
+              {
+                "name": "dashboards/01f132488fb01121819d47cc39c93cbb/datasets/01f13a388a711cffa31babb40d4109e5_table_name",
+                "query": {
+                  "datasetName": "prev_all_dup_detail",
+                  "fields": [
+                    {
+                      "name": "table_name",
+                      "expression": "`table_name`"
+                    },
+                    {
+                      "name": "table_name_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Search Table Name",
+                "showTitle": true
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "table_name",
+                    "queryName": "dashboards/01f132488fb01121819d47cc39c93cbb/datasets/01f13a388a711cffa31babb40d4109e5_table_name"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 24,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "d37f7935",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "prev_all_dup_detail",
+                  "fields": [
+                    {
+                      "name": "table_name",
+                      "expression": "`table_name`"
+                    },
+                    {
+                      "name": "catalog",
+                      "expression": "`catalog`"
+                    },
+                    {
+                      "name": "schema_name",
+                      "expression": "`schema_name`"
+                    },
+                    {
+                      "name": "full_table_name",
+                      "expression": "`full_table_name`"
+                    },
+                    {
+                      "name": "owner",
+                      "expression": "`owner`"
+                    },
+                    {
+                      "name": "created_on",
+                      "expression": "`created_on`"
+                    },
+                    {
+                      "name": "last_altered",
+                      "expression": "`last_altered`"
+                    },
+                    {
+                      "name": "last_read_at",
+                      "expression": "`last_read_at`"
+                    },
+                    {
+                      "name": "last_written_at",
+                      "expression": "`last_written_at`"
+                    },
+                    {
+                      "name": "table_schema_def",
+                      "expression": "`table_schema_def`"
+                    },
+                    {
+                      "name": "schema_match",
+                      "expression": "`schema_match`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "rowsPerPage": 25,
+              "frame": {
+                "title": "TABLE DEEP DIVE",
+                "showTitle": true
+              },
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "table_name",
+                    "displayName": "Table Name"
+                  },
+                  {
+                    "fieldName": "catalog",
+                    "displayName": "Catalog"
+                  },
+                  {
+                    "fieldName": "schema_name",
+                    "displayName": "Schema"
+                  },
+                  {
+                    "fieldName": "full_table_name",
+                    "displayName": "Full Table Name"
+                  },
+                  {
+                    "fieldName": "owner",
+                    "displayName": "Owner"
+                  },
+                  {
+                    "fieldName": "created_on",
+                    "displayName": "Created On"
+                  },
+                  {
+                    "fieldName": "last_altered",
+                    "displayName": "Last Altered"
+                  },
+                  {
+                    "fieldName": "last_read_at",
+                    "displayName": "Last Read"
+                  },
+                  {
+                    "fieldName": "last_written_at",
+                    "displayName": "Last Written"
+                  },
+                  {
+                    "fieldName": "table_schema_def",
+                    "displayName": "Table Schema"
+                  },
+                  {
+                    "fieldName": "schema_match",
+                    "displayName": "Schema Match"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 26,
+            "width": 12,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "196a0903",
+            "multilineTextboxSpec": {
+              "lines": [
+                "<span style=\"font-size:24px\">**Same Schema, Different Table Names**</span>\n",
+                "\n",
+                "*Identifies Delta tables across the catalog that share identical schemas but have different table names, helping detect potential duplicates and redundancy.*"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 34,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "d78c1653",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "prev_schema_match_counters",
+                  "fields": [
+                    {
+                      "name": "total_schema_groups",
+                      "expression": "`total_schema_groups`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "COUNT OF TABLES (SCHEMA MATCH)",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "total_schema_groups",
+                  "displayName": "Total Schema Groups"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 36,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "b2fb4fd1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "prev_schema_match_counters",
+                  "fields": [
+                    {
+                      "name": "total_tables_involved",
+                      "expression": "`total_tables_involved`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "TOTAL TABLES",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "total_tables_involved",
+                  "displayName": "Total Tables Involved"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 36,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "1082dd3c",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "prev_schema_match_kpi",
+                  "fields": [
+                    {
+                      "name": "schema_group_id",
+                      "expression": "`schema_group_id`"
+                    },
+                    {
+                      "name": "table_name",
+                      "expression": "`table_name`"
+                    },
+                    {
+                      "name": "catalog",
+                      "expression": "`catalog`"
+                    },
+                    {
+                      "name": "catalog_schema",
+                      "expression": "`catalog_schema`"
+                    },
+                    {
+                      "name": "owner",
+                      "expression": "`owner`"
+                    },
+                    {
+                      "name": "created_on",
+                      "expression": "`created_on`"
+                    },
+                    {
+                      "name": "last_altered",
+                      "expression": "`last_altered`"
+                    },
+                    {
+                      "name": "last_read_at",
+                      "expression": "`last_read_at`"
+                    },
+                    {
+                      "name": "last_written_at",
+                      "expression": "`last_written_at`"
+                    },
+                    {
+                      "name": "catalog_match_count",
+                      "expression": "`catalog_match_count`"
+                    },
+                    {
+                      "name": "total_match_instances",
+                      "expression": "`total_match_instances`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "SCHEMA MATCH",
+                "showTitle": true
+              },
+              "rowsPerPage": 25,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "schema_group_id",
+                    "displayName": "Schema Group"
+                  },
+                  {
+                    "fieldName": "table_name",
+                    "displayName": "Table Name"
+                  },
+                  {
+                    "fieldName": "catalog",
+                    "displayName": "Catalog"
+                  },
+                  {
+                    "fieldName": "catalog_schema",
+                    "displayName": "Catalog.Schema"
+                  },
+                  {
+                    "fieldName": "owner",
+                    "displayName": "Owner"
+                  },
+                  {
+                    "fieldName": "created_on",
+                    "displayName": "Created On"
+                  },
+                  {
+                    "fieldName": "last_altered",
+                    "displayName": "Last Altered"
+                  },
+                  {
+                    "fieldName": "last_read_at",
+                    "displayName": "Last Read"
+                  },
+                  {
+                    "fieldName": "last_written_at",
+                    "displayName": "Last Written"
+                  },
+                  {
+                    "fieldName": "catalog_match_count",
+                    "displayName": "Catalogs Matched"
+                  },
+                  {
+                    "fieldName": "total_match_instances",
+                    "displayName": "Total Instances"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 38,
+            "width": 12,
+            "height": 10
+          }
+        },
+        {
+          "widget": {
+            "name": "4766e132",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "prev_all_dup_detail",
+                  "fields": [
+                    {
+                      "name": "countdistinct(owner)",
+                      "expression": "COUNT(DISTINCT `owner`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "TABLE OWNERS",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "countdistinct(owner)",
+                  "displayName": "Distinct Owners"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 7,
+            "y": 2,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "flagged_dup_counter",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "prev_all_dup_detail",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "filters": [
+                    {
+                      "expression": "`duplicate_table_flag` IN ('Yes')"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "FLAGGED DUPLICATES",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "displayName": "Flagged Count"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 2,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "test_data_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "<span style=\"font-size: 24px;\">**Back-up Table Monitor**</span>\n",
+                "\n",
+                "*Identifies backup and test tables (suffixed with \\_bkp, \\_bckp, \\_test, \\_empty, \\_version1, \\_v1, \\_v2, \\_1, \\_2) that have a matching original table in the same catalog.schema. Only the suffixed copies are counted as anomalies.*"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 48,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "test_data_counter",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "test_data_detail",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "TABLE COUNT",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "displayName": "Anomaly Count"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 50,
+            "width": 4,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "test_data_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "test_data_detail",
+                  "fields": [
+                    {
+                      "name": "table_name",
+                      "expression": "`table_name`"
+                    },
+                    {
+                      "name": "anomaly_catalog",
+                      "expression": "`anomaly_catalog`"
+                    },
+                    {
+                      "name": "schema_name",
+                      "expression": "`schema_name`"
+                    },
+                    {
+                      "name": "original_table",
+                      "expression": "`original_table`"
+                    },
+                    {
+                      "name": "suffix_type",
+                      "expression": "`suffix_type`"
+                    },
+                    {
+                      "name": "owner",
+                      "expression": "`owner`"
+                    },
+                    {
+                      "name": "created_on",
+                      "expression": "`created_on`"
+                    },
+                    {
+                      "name": "last_altered",
+                      "expression": "`last_altered`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "rowsPerPage": 25,
+              "frame": {
+                "showTitle": true,
+                "title": "TABLE DEEP DIVE"
+              },
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "table_name",
+                    "displayName": "Table Name"
+                  },
+                  {
+                    "fieldName": "anomaly_catalog",
+                    "displayName": "Catalog"
+                  },
+                  {
+                    "fieldName": "schema_name",
+                    "displayName": "Schema"
+                  },
+                  {
+                    "fieldName": "original_table",
+                    "displayName": "Original Table"
+                  },
+                  {
+                    "fieldName": "suffix_type",
+                    "displayName": "Suffix"
+                  },
+                  {
+                    "fieldName": "owner",
+                    "displayName": "Owner"
+                  },
+                  {
+                    "fieldName": "created_on",
+                    "displayName": "Created On"
+                  },
+                  {
+                    "fieldName": "last_altered",
+                    "displayName": "Last Altered"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 52,
+            "width": 12,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "test_catalog_filter",
+            "queries": [
+              {
+                "name": "dashboards/01f132488fb01121819d47cc39c93cbb/datasets/01f14ab74db710918da14a3c6ed80cf2_anomaly_catalog",
+                "query": {
+                  "datasetName": "test_data_detail",
+                  "fields": [
+                    {
+                      "name": "anomaly_catalog",
+                      "expression": "`anomaly_catalog`"
+                    },
+                    {
+                      "name": "anomaly_catalog_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "CATALOG FILTER",
+                "showTitle": true
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "anomaly_catalog",
+                    "queryName": "dashboards/01f132488fb01121819d47cc39c93cbb/datasets/01f14ab74db710918da14a3c6ed80cf2_anomaly_catalog"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 50,
+            "width": 8,
+            "height": 2
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "visualizationColors": [
+        "#1565C0",
+        "#2E7D32",
+        "#C62828",
+        "#F57F17",
+        "#6A1B9A",
+        "#00838F",
+        "#EF6C00",
+        "#AD1457",
+        "#283593",
+        "#558B2F"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    },
+    "applyModeEnabled": false
+  }
+}

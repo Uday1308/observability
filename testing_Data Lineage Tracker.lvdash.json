@@ -1,0 +1,3620 @@
+{
+  "datasets": [
+    {
+      "name": "8130b719",
+      "displayName": "Downstream Lineage",
+      "queryLines": [
+        "WITH RECURSIVE downstream_tables(table_name, table_type, dependency_level) AS (SELECT DISTINCT target_table_full_name, target_type, 1 FROM system.access.table_lineage WHERE :entity_type IN ('TABLE', 'VIEW') AND source_table_catalog = :catalog AND source_table_schema = :schema AND source_table_name = :table_name AND target_table_full_name IS NOT NULL AND target_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name) UNION ALL SELECT t.target_table_full_name, t.target_type, dt.dependency_level + 1 FROM downstream_tables dt JOIN (SELECT DISTINCT source_table_full_name, target_table_full_name, target_type FROM system.access.table_lineage WHERE target_table_full_name IS NOT NULL) t ON t.source_table_full_name = dt.table_name WHERE t.target_table_full_name != dt.table_name AND t.target_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name) AND dt.dependency_level < 10), downstream_min AS (SELECT table_name, MAX(table_type) as table_type, MIN(dependency_level) as dependency_level FROM downstream_tables GROUP BY table_name), all_results AS (SELECT COALESCE(table_type, 'TABLE') as related_type, table_name as related_id, dependency_level, CAST(NULL AS STRING) as created_by, CAST(NULL AS TIMESTAMP) as event_time FROM downstream_min WHERE :entity_type IN ('TABLE', 'VIEW') UNION ALL SELECT 'JOB', entity_metadata.job_info.job_id, 1, created_by, event_time FROM system.access.table_lineage WHERE :entity_type IN ('TABLE', 'VIEW') AND source_table_catalog = :catalog AND source_table_schema = :schema AND source_table_name = :table_name AND entity_metadata.job_info.job_id IS NOT NULL UNION ALL SELECT 'NOTEBOOK', entity_metadata.notebook_id, 1, created_by, event_time FROM system.access.table_lineage WHERE :entity_type IN ('TABLE', 'VIEW') AND source_table_catalog = :catalog AND source_table_schema = :schema AND source_table_name = :table_name AND entity_metadata.notebook_id IS NOT NULL UNION ALL SELECT 'DASHBOARD', entity_metadata.dashboard_id, 1, created_by, event_time FROM system.access.table_lineage WHERE :entity_type IN ('TABLE', 'VIEW') AND source_table_catalog = :catalog AND source_table_schema = :schema AND source_table_name = :table_name AND entity_metadata.dashboard_id IS NOT NULL UNION ALL SELECT 'DBSQL_QUERY', entity_metadata.sql_query_id, 1, created_by, event_time FROM system.access.table_lineage WHERE :entity_type IN ('TABLE', 'VIEW') AND source_table_catalog = :catalog AND source_table_schema = :schema AND source_table_name = :table_name AND entity_metadata.sql_query_id IS NOT NULL UNION ALL SELECT 'PIPELINE', entity_metadata.dlt_pipeline_info.dlt_pipeline_id, 1, created_by, event_time FROM system.access.table_lineage WHERE :entity_type IN ('TABLE', 'VIEW') AND source_table_catalog = :catalog AND source_table_schema = :schema AND source_table_name = :table_name AND entity_metadata.dlt_pipeline_info.dlt_pipeline_id IS NOT NULL UNION ALL SELECT 'SQL_WAREHOUSE', COALESCE(statement_id, created_by), 1, created_by, event_time FROM system.access.table_lineage WHERE :entity_type IN ('TABLE', 'VIEW') AND source_table_catalog = :catalog AND source_table_schema = :schema AND source_table_name = :table_name AND entity_metadata.job_info.job_id IS NULL AND entity_metadata.notebook_id IS NULL AND entity_metadata.dashboard_id IS NULL AND entity_metadata.sql_query_id IS NULL AND entity_metadata.dlt_pipeline_info.dlt_pipeline_id IS NULL AND entity_metadata.legacy_dashboard_id IS NULL UNION ALL SELECT 'JOB', tl.entity_metadata.job_info.job_id, dm.dependency_level + 1, tl.created_by, tl.event_time FROM downstream_min dm JOIN system.access.table_lineage tl ON tl.source_table_full_name = dm.table_name WHERE :entity_type IN ('TABLE', 'VIEW') AND tl.entity_metadata.job_info.job_id IS NOT NULL UNION ALL SELECT 'NOTEBOOK', tl.entity_metadata.notebook_id, dm.dependency_level + 1, tl.created_by, tl.event_time FROM downstream_min dm JOIN system.access.table_lineage tl ON tl.source_table_full_name = dm.table_name WHERE :entity_type IN ('TABLE', 'VIEW') AND tl.entity_metadata.notebook_id IS NOT NULL UNION ALL SELECT 'DASHBOARD', tl.entity_metadata.dashboard_id, dm.dependency_level + 1, tl.created_by, tl.event_time FROM downstream_min dm JOIN system.access.table_lineage tl ON tl.source_table_full_name = dm.table_name WHERE :entity_type IN ('TABLE', 'VIEW') AND tl.entity_metadata.dashboard_id IS NOT NULL UNION ALL SELECT 'PIPELINE', tl.entity_metadata.dlt_pipeline_info.dlt_pipeline_id, dm.dependency_level + 1, tl.created_by, tl.event_time FROM downstream_min dm JOIN system.access.table_lineage tl ON tl.source_table_full_name = dm.table_name WHERE :entity_type IN ('TABLE', 'VIEW') AND tl.entity_metadata.dlt_pipeline_info.dlt_pipeline_id IS NOT NULL UNION ALL SELECT target_type, target_table_full_name, 1, created_by, event_time FROM system.access.table_lineage WHERE :entity_type NOT IN ('TABLE', 'VIEW') AND ((:entity_type = 'JOB' AND entity_metadata.job_info.job_id = :entity_id) OR (:entity_type = 'NOTEBOOK' AND entity_metadata.notebook_id = :entity_id) OR (:entity_type = 'DASHBOARD' AND entity_metadata.dashboard_id = :entity_id) OR (:entity_type = 'PIPELINE' AND entity_metadata.dlt_pipeline_info.dlt_pipeline_id = :entity_id)) AND target_table_full_name IS NOT NULL) SELECT related_type, related_id, MIN(dependency_level) as dependency_level, MAX(created_by) as created_by, MAX(event_time) as event_time FROM all_results GROUP BY related_type, related_id"
+      ],
+      "parameters": [
+        {
+          "displayName": "Entity Type",
+          "keyword": "entity_type",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "TABLE"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "Catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "ds_training_1"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "Schema",
+          "keyword": "schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "ds_bronze"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "Table Name",
+          "keyword": "table_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "raw_orders"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "Entity ID",
+          "keyword": "entity_id",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": ""
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "columns": [
+        {
+          "displayName": "Level Label",
+          "description": "Human-readable dependency level label",
+          "expression": "CONCAT('Level ', CAST(`dependency_level` AS STRING))"
+        }
+      ]
+    },
+    {
+      "name": "18c753db",
+      "displayName": "Upstream Lineage",
+      "queryLines": [
+        "WITH RECURSIVE upstream_tables(table_name, table_type, dependency_level) AS (SELECT DISTINCT source_table_full_name, source_type, 1 FROM system.access.table_lineage WHERE :entity_type IN ('TABLE', 'VIEW') AND target_table_catalog = :catalog AND target_table_schema = :schema AND target_table_name = :table_name AND source_table_full_name IS NOT NULL AND source_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name) UNION ALL SELECT t.source_table_full_name, t.source_type, ut.dependency_level + 1 FROM upstream_tables ut JOIN (SELECT DISTINCT source_table_full_name, source_type, target_table_full_name FROM system.access.table_lineage WHERE source_table_full_name IS NOT NULL) t ON t.target_table_full_name = ut.table_name WHERE t.source_table_full_name != ut.table_name AND t.source_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name) AND ut.dependency_level < 10), upstream_min AS (SELECT table_name, MAX(table_type) as table_type, MIN(dependency_level) as dependency_level FROM upstream_tables GROUP BY table_name), all_results AS (SELECT COALESCE(table_type, 'TABLE') as related_type, table_name as related_id, dependency_level, CAST(NULL AS STRING) as created_by, CAST(NULL AS TIMESTAMP) as event_time FROM upstream_min WHERE :entity_type IN ('TABLE', 'VIEW') UNION ALL SELECT 'JOB', entity_metadata.job_info.job_id, 1, created_by, event_time FROM system.access.table_lineage WHERE :entity_type IN ('TABLE', 'VIEW') AND target_table_catalog = :catalog AND target_table_schema = :schema AND target_table_name = :table_name AND entity_metadata.job_info.job_id IS NOT NULL UNION ALL SELECT 'NOTEBOOK', entity_metadata.notebook_id, 1, created_by, event_time FROM system.access.table_lineage WHERE :entity_type IN ('TABLE', 'VIEW') AND target_table_catalog = :catalog AND target_table_schema = :schema AND target_table_name = :table_name AND entity_metadata.notebook_id IS NOT NULL UNION ALL SELECT 'DASHBOARD', entity_metadata.dashboard_id, 1, created_by, event_time FROM system.access.table_lineage WHERE :entity_type IN ('TABLE', 'VIEW') AND target_table_catalog = :catalog AND target_table_schema = :schema AND target_table_name = :table_name AND entity_metadata.dashboard_id IS NOT NULL UNION ALL SELECT 'DBSQL_QUERY', entity_metadata.sql_query_id, 1, created_by, event_time FROM system.access.table_lineage WHERE :entity_type IN ('TABLE', 'VIEW') AND target_table_catalog = :catalog AND target_table_schema = :schema AND target_table_name = :table_name AND entity_metadata.sql_query_id IS NOT NULL UNION ALL SELECT 'PIPELINE', entity_metadata.dlt_pipeline_info.dlt_pipeline_id, 1, created_by, event_time FROM system.access.table_lineage WHERE :entity_type IN ('TABLE', 'VIEW') AND target_table_catalog = :catalog AND target_table_schema = :schema AND target_table_name = :table_name AND entity_metadata.dlt_pipeline_info.dlt_pipeline_id IS NOT NULL UNION ALL SELECT 'LEGACY_DASHBOARD', entity_metadata.legacy_dashboard_id, 1, created_by, event_time FROM system.access.table_lineage WHERE :entity_type IN ('TABLE', 'VIEW') AND target_table_catalog = :catalog AND target_table_schema = :schema AND target_table_name = :table_name AND entity_metadata.legacy_dashboard_id IS NOT NULL UNION ALL SELECT 'SQL_WAREHOUSE', COALESCE(statement_id, created_by), 1, created_by, event_time FROM system.access.table_lineage WHERE :entity_type IN ('TABLE', 'VIEW') AND target_table_catalog = :catalog AND target_table_schema = :schema AND target_table_name = :table_name AND entity_metadata.job_info.job_id IS NULL AND entity_metadata.notebook_id IS NULL AND entity_metadata.dashboard_id IS NULL AND entity_metadata.sql_query_id IS NULL AND entity_metadata.dlt_pipeline_info.dlt_pipeline_id IS NULL AND entity_metadata.legacy_dashboard_id IS NULL UNION ALL SELECT 'JOB', tl.entity_metadata.job_info.job_id, um.dependency_level + 1, tl.created_by, tl.event_time FROM upstream_min um JOIN system.access.table_lineage tl ON tl.target_table_full_name = um.table_name WHERE :entity_type IN ('TABLE', 'VIEW') AND tl.entity_metadata.job_info.job_id IS NOT NULL UNION ALL SELECT 'NOTEBOOK', tl.entity_metadata.notebook_id, um.dependency_level + 1, tl.created_by, tl.event_time FROM upstream_min um JOIN system.access.table_lineage tl ON tl.target_table_full_name = um.table_name WHERE :entity_type IN ('TABLE', 'VIEW') AND tl.entity_metadata.notebook_id IS NOT NULL UNION ALL SELECT 'DASHBOARD', tl.entity_metadata.dashboard_id, um.dependency_level + 1, tl.created_by, tl.event_time FROM upstream_min um JOIN system.access.table_lineage tl ON tl.target_table_full_name = um.table_name WHERE :entity_type IN ('TABLE', 'VIEW') AND tl.entity_metadata.dashboard_id IS NOT NULL UNION ALL SELECT 'PIPELINE', tl.entity_metadata.dlt_pipeline_info.dlt_pipeline_id, um.dependency_level + 1, tl.created_by, tl.event_time FROM upstream_min um JOIN system.access.table_lineage tl ON tl.target_table_full_name = um.table_name WHERE :entity_type IN ('TABLE', 'VIEW') AND tl.entity_metadata.dlt_pipeline_info.dlt_pipeline_id IS NOT NULL UNION ALL SELECT source_type, source_table_full_name, 1, created_by, event_time FROM system.access.table_lineage WHERE :entity_type NOT IN ('TABLE', 'VIEW') AND ((:entity_type = 'JOB' AND entity_metadata.job_info.job_id = :entity_id) OR (:entity_type = 'NOTEBOOK' AND entity_metadata.notebook_id = :entity_id) OR (:entity_type = 'DASHBOARD' AND entity_metadata.dashboard_id = :entity_id) OR (:entity_type = 'PIPELINE' AND entity_metadata.dlt_pipeline_info.dlt_pipeline_id = :entity_id)) AND source_table_full_name IS NOT NULL UNION ALL SELECT 'NOTEBOOK', entity_metadata.notebook_id, 1, created_by, event_time FROM system.access.table_lineage WHERE :entity_type = 'JOB' AND entity_metadata.job_info.job_id = :entity_id AND entity_metadata.notebook_id IS NOT NULL UNION ALL SELECT 'JOB', entity_metadata.job_info.job_id, 1, created_by, event_time FROM system.access.table_lineage WHERE :entity_type = 'NOTEBOOK' AND entity_metadata.notebook_id = :entity_id AND entity_metadata.job_info.job_id IS NOT NULL UNION ALL SELECT 'JOB', entity_metadata.job_info.job_id, 1, created_by, event_time FROM system.access.table_lineage WHERE :entity_type = 'DASHBOARD' AND entity_metadata.dashboard_id = :entity_id AND entity_metadata.job_info.job_id IS NOT NULL UNION ALL SELECT 'NOTEBOOK', entity_metadata.notebook_id, 1, created_by, event_time FROM system.access.table_lineage WHERE :entity_type = 'DASHBOARD' AND entity_metadata.dashboard_id = :entity_id AND entity_metadata.notebook_id IS NOT NULL) SELECT related_type, related_id, MIN(dependency_level) as dependency_level, MAX(created_by) as created_by, MAX(event_time) as event_time FROM all_results GROUP BY related_type, related_id"
+      ],
+      "parameters": [
+        {
+          "displayName": "Entity Type",
+          "keyword": "entity_type",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "TABLE"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "Catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "ds_training_1"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "Schema",
+          "keyword": "schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "ds_bronze"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "Table Name",
+          "keyword": "table_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "raw_orders"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "Entity ID",
+          "keyword": "entity_id",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": ""
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "columns": [
+        {
+          "displayName": "Level Label",
+          "description": "Human-readable dependency level label",
+          "expression": "CONCAT('Level ', CAST(`dependency_level` AS STRING))"
+        }
+      ]
+    },
+    {
+      "name": "526dbf18",
+      "displayName": "Catalogs",
+      "queryLines": [
+        "SELECT DISTINCT\n",
+        "  catalog_name\n",
+        "FROM\n",
+        "  (\n",
+        "    SELECT\n",
+        "      source_table_catalog AS catalog_name\n",
+        "    FROM\n",
+        "      system.access.table_lineage\n",
+        "    WHERE\n",
+        "      source_table_catalog IS NOT NULL\n",
+        "      AND source_table_catalog != ''\n",
+        "    UNION\n",
+        "    SELECT\n",
+        "      target_table_catalog AS catalog_name\n",
+        "    FROM\n",
+        "      system.access.table_lineage\n",
+        "    WHERE\n",
+        "      target_table_catalog IS NOT NULL\n",
+        "      AND target_table_catalog != ''\n",
+        "  )"
+      ]
+    },
+    {
+      "name": "d13d271d",
+      "displayName": "Schemas",
+      "queryLines": [
+        "SELECT DISTINCT\n",
+        "  schema_name\n",
+        "FROM\n",
+        "  (\n",
+        "    SELECT\n",
+        "      source_table_schema AS schema_name\n",
+        "    FROM\n",
+        "      system.access.table_lineage\n",
+        "    WHERE\n",
+        "      source_table_catalog = :catalog\n",
+        "      AND source_table_schema IS NOT NULL\n",
+        "      AND source_table_schema != ''\n",
+        "    UNION\n",
+        "    SELECT\n",
+        "      target_table_schema AS schema_name\n",
+        "    FROM\n",
+        "      system.access.table_lineage\n",
+        "    WHERE\n",
+        "      target_table_catalog = :catalog\n",
+        "      AND target_table_schema IS NOT NULL\n",
+        "      AND target_table_schema != ''\n",
+        "  )"
+      ],
+      "parameters": [
+        {
+          "displayName": "Catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "ds_training_1"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "bb9985c8",
+      "displayName": "Tables",
+      "queryLines": [
+        "SELECT DISTINCT\n",
+        "  table_name\n",
+        "FROM\n",
+        "  (\n",
+        "    SELECT\n",
+        "      source_table_name AS table_name\n",
+        "    FROM\n",
+        "      system.access.table_lineage\n",
+        "    WHERE\n",
+        "      source_table_catalog = :catalog\n",
+        "      AND source_table_schema = :schema\n",
+        "      AND source_table_name IS NOT NULL\n",
+        "      AND source_table_name != ''\n",
+        "    UNION\n",
+        "    SELECT\n",
+        "      target_table_name AS table_name\n",
+        "    FROM\n",
+        "      system.access.table_lineage\n",
+        "    WHERE\n",
+        "      target_table_catalog = :catalog\n",
+        "      AND target_table_schema = :schema\n",
+        "      AND target_table_name IS NOT NULL\n",
+        "      AND target_table_name != ''\n",
+        "  )"
+      ],
+      "parameters": [
+        {
+          "displayName": "Catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "ds_training_1"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "Schema",
+          "keyword": "schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "mlops_dataset"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "b519dbbc",
+      "displayName": "Entity Types",
+      "queryLines": [
+        "SELECT\n",
+        "  'TABLE' as entity_type\n",
+        "UNION ALL\n",
+        "SELECT\n",
+        "  'VIEW'\n",
+        "UNION ALL\n",
+        "SELECT\n",
+        "  'JOB'\n",
+        "UNION ALL\n",
+        "SELECT\n",
+        "  'NOTEBOOK'\n",
+        "UNION ALL\n",
+        "SELECT\n",
+        "  'DASHBOARD'\n",
+        "UNION ALL\n",
+        "SELECT\n",
+        "  'PIPELINE'"
+      ]
+    },
+    {
+      "name": "af518e46",
+      "displayName": "Entity IDs",
+      "queryLines": [
+        "SELECT DISTINCT\n",
+        "  entity_id\n",
+        "FROM\n",
+        "  (\n",
+        "    SELECT\n",
+        "      entity_metadata.job_info.job_id as entity_id\n",
+        "    FROM\n",
+        "      system.access.table_lineage\n",
+        "    WHERE\n",
+        "      :entity_type = 'JOB'\n",
+        "      AND entity_metadata.job_info.job_id IS NOT NULL\n",
+        "    UNION ALL\n",
+        "    SELECT\n",
+        "      entity_metadata.notebook_id\n",
+        "    FROM\n",
+        "      system.access.table_lineage\n",
+        "    WHERE\n",
+        "      :entity_type = 'NOTEBOOK'\n",
+        "      AND entity_metadata.notebook_id IS NOT NULL\n",
+        "    UNION ALL\n",
+        "    SELECT\n",
+        "      entity_metadata.dashboard_id\n",
+        "    FROM\n",
+        "      system.access.table_lineage\n",
+        "    WHERE\n",
+        "      :entity_type = 'DASHBOARD'\n",
+        "      AND entity_metadata.dashboard_id IS NOT NULL\n",
+        "    UNION ALL\n",
+        "    SELECT\n",
+        "      entity_metadata.dlt_pipeline_info.dlt_pipeline_id\n",
+        "    FROM\n",
+        "      system.access.table_lineage\n",
+        "    WHERE\n",
+        "      :entity_type = 'PIPELINE'\n",
+        "      AND entity_metadata.dlt_pipeline_info.dlt_pipeline_id IS NOT NULL\n",
+        "  )"
+      ],
+      "parameters": [
+        {
+          "displayName": "Entity Type",
+          "keyword": "entity_type",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "JOB"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "bed02bd2",
+      "displayName": "Downstream Column Lineage",
+      "queryLines": [
+        "WITH RECURSIVE col_downstream(source_table, source_col, target_table, target_col, dependency_level) AS (\n",
+        "  SELECT DISTINCT\n",
+        "    CONCAT(:catalog, '.', :schema, '.', :table_name), source_column_name,\n",
+        "    target_table_full_name, target_column_name, 1\n",
+        "  FROM system.access.column_lineage\n",
+        "  WHERE source_table_catalog = :catalog\n",
+        "    AND source_table_schema = :schema\n",
+        "    AND source_table_name = :table_name\n",
+        "    AND source_column_name = :column_name\n",
+        "    AND target_table_full_name IS NOT NULL\n",
+        "    AND target_column_name IS NOT NULL\n",
+        "    AND target_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "  UNION ALL\n",
+        "  SELECT cd.target_table, cd.target_col,\n",
+        "    cl.target_table_full_name, cl.target_column_name, cd.dependency_level + 1\n",
+        "  FROM col_downstream cd\n",
+        "  JOIN (\n",
+        "    SELECT DISTINCT source_table_full_name, source_column_name, target_table_full_name, target_column_name\n",
+        "    FROM system.access.column_lineage\n",
+        "    WHERE target_table_full_name IS NOT NULL AND target_column_name IS NOT NULL AND source_column_name IS NOT NULL\n",
+        "  ) cl ON cl.source_table_full_name = cd.target_table AND cl.source_column_name = cd.target_col\n",
+        "  WHERE cd.dependency_level < 10\n",
+        "    AND cl.target_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (cl.target_table_full_name = cd.target_table AND cl.target_column_name = cd.target_col)\n",
+        "    AND NOT (cl.target_table_full_name = cd.source_table AND cl.target_column_name = cd.source_col)\n",
+        ")\n",
+        "SELECT target_table, target_col,\n",
+        "  MIN(dependency_level) as dependency_level\n",
+        "FROM col_downstream\n",
+        "GROUP BY target_table, target_col"
+      ],
+      "parameters": [
+        {
+          "displayName": "Catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "Schema",
+          "keyword": "schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "Table",
+          "keyword": "table_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "Column",
+          "keyword": "column_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": ""
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "columns": [
+        {
+          "displayName": "Level Label",
+          "description": "Human-readable dependency level label",
+          "expression": "CONCAT('Level ', CAST(`dependency_level` AS STRING))"
+        },
+        {
+          "displayName": "Target Label",
+          "description": "Short table.column label for target",
+          "expression": "CONCAT(REGEXP_EXTRACT(`target_table`, '([^.]+)$', 1), '.', `target_col`)"
+        },
+        {
+          "displayName": "Target Key",
+          "description": "Unique key for counting distinct target columns across tables",
+          "expression": "CONCAT(`target_table`, '.', `target_col`)"
+        }
+      ]
+    },
+    {
+      "name": "7f35a271",
+      "displayName": "Upstream Column Lineage",
+      "queryLines": [
+        "WITH RECURSIVE col_upstream(target_table, target_col, source_table, source_col, dependency_level) AS (\n",
+        "  SELECT DISTINCT\n",
+        "    CONCAT(:catalog, '.', :schema, '.', :table_name), target_column_name,\n",
+        "    source_table_full_name, source_column_name, 1\n",
+        "  FROM system.access.column_lineage\n",
+        "  WHERE target_table_catalog = :catalog\n",
+        "    AND target_table_schema = :schema\n",
+        "    AND target_table_name = :table_name\n",
+        "    AND target_column_name = :column_name\n",
+        "    AND source_table_full_name IS NOT NULL\n",
+        "    AND source_column_name IS NOT NULL\n",
+        "    AND source_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "  UNION ALL\n",
+        "  SELECT cu.source_table, cu.source_col,\n",
+        "    cl.source_table_full_name, cl.source_column_name, cu.dependency_level + 1\n",
+        "  FROM col_upstream cu\n",
+        "  JOIN (\n",
+        "    SELECT DISTINCT source_table_full_name, source_column_name, target_table_full_name, target_column_name\n",
+        "    FROM system.access.column_lineage\n",
+        "    WHERE source_table_full_name IS NOT NULL AND source_column_name IS NOT NULL AND target_column_name IS NOT NULL\n",
+        "  ) cl ON cl.target_table_full_name = cu.source_table AND cl.target_column_name = cu.source_col\n",
+        "  WHERE cu.dependency_level < 10\n",
+        "    AND cl.source_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (cl.source_table_full_name = cu.source_table AND cl.source_column_name = cu.source_col)\n",
+        "    AND NOT (cl.source_table_full_name = cu.target_table AND cl.source_column_name = cu.target_col)\n",
+        ")\n",
+        "SELECT source_table, source_col,\n",
+        "  MIN(dependency_level) as dependency_level\n",
+        "FROM col_upstream\n",
+        "GROUP BY source_table, source_col"
+      ],
+      "parameters": [
+        {
+          "displayName": "Catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "Schema",
+          "keyword": "schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "Table",
+          "keyword": "table_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "Column",
+          "keyword": "column_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": ""
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "columns": [
+        {
+          "displayName": "Level Label",
+          "description": "Human-readable dependency level label",
+          "expression": "CONCAT('Level ', CAST(`dependency_level` AS STRING))"
+        },
+        {
+          "displayName": "Source Label",
+          "description": "Short table.column label for source",
+          "expression": "CONCAT(REGEXP_EXTRACT(`source_table`, '([^.]+)$', 1), '.', `source_col`)"
+        },
+        {
+          "displayName": "Source Key",
+          "description": "Unique key for counting distinct source columns across tables",
+          "expression": "CONCAT(`source_table`, '.', `source_col`)"
+        }
+      ]
+    },
+    {
+      "name": "791afe56",
+      "displayName": "Columns",
+      "queryLines": [
+        "SELECT\n",
+        "  column_name\n",
+        "FROM\n",
+        "  system.information_schema.columns\n",
+        "WHERE\n",
+        "  table_catalog = :catalog\n",
+        "  AND table_schema = :schema\n",
+        "  AND table_name = :table_name\n",
+        "ORDER BY\n",
+        "  ordinal_position"
+      ],
+      "parameters": [
+        {
+          "displayName": "Catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "Schema",
+          "keyword": "schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "Table",
+          "keyword": "table_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": ""
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2b55c299",
+      "displayName": "DS Flow",
+      "queryLines": [
+        "WITH l1_raw AS (\n",
+        "  SELECT DISTINCT\n",
+        "    target_table_full_name as l1_table,\n",
+        "    target_column_name as l1_col\n",
+        "  FROM\n",
+        "    system.access.column_lineage\n",
+        "  WHERE\n",
+        "    source_table_catalog = :catalog\n",
+        "    AND source_table_schema = :schema\n",
+        "    AND source_table_name = :table_name\n",
+        "    AND source_column_name = :column_name\n",
+        "    AND target_table_full_name IS NOT NULL\n",
+        "    AND target_column_name IS NOT NULL\n",
+        "    AND target_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "),\n",
+        "l2_raw AS (\n",
+        "  SELECT DISTINCT\n",
+        "    l1.l1_table,\n",
+        "    l1.l1_col,\n",
+        "    cl.target_table_full_name as l2_table,\n",
+        "    cl.target_column_name as l2_col\n",
+        "  FROM\n",
+        "    l1_raw l1\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.source_table_full_name = l1.l1_table\n",
+        "        AND cl.source_column_name = l1.l1_col\n",
+        "  WHERE\n",
+        "    cl.target_table_full_name IS NOT NULL\n",
+        "    AND cl.target_column_name IS NOT NULL\n",
+        "    AND cl.target_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.target_table_full_name = l1.l1_table\n",
+        "      AND cl.target_column_name = l1.l1_col\n",
+        "    )\n",
+        "),\n",
+        "l3_raw AS (\n",
+        "  SELECT DISTINCT\n",
+        "    l2.l2_table,\n",
+        "    l2.l2_col,\n",
+        "    cl.target_table_full_name as l3_table,\n",
+        "    cl.target_column_name as l3_col\n",
+        "  FROM\n",
+        "    l2_raw l2\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.source_table_full_name = l2.l2_table\n",
+        "        AND cl.source_column_name = l2.l2_col\n",
+        "  WHERE\n",
+        "    cl.target_table_full_name IS NOT NULL\n",
+        "    AND cl.target_column_name IS NOT NULL\n",
+        "    AND cl.target_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.target_table_full_name = l2.l2_table\n",
+        "      AND cl.target_column_name = l2.l2_col\n",
+        "    )\n",
+        "),\n",
+        "l4_raw AS (\n",
+        "  SELECT DISTINCT\n",
+        "    l3.l3_table,\n",
+        "    l3.l3_col,\n",
+        "    cl.target_table_full_name as l4_table,\n",
+        "    cl.target_column_name as l4_col\n",
+        "  FROM\n",
+        "    l3_raw l3\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.source_table_full_name = l3.l3_table\n",
+        "        AND cl.source_column_name = l3.l3_col\n",
+        "  WHERE\n",
+        "    cl.target_table_full_name IS NOT NULL\n",
+        "    AND cl.target_column_name IS NOT NULL\n",
+        "    AND cl.target_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.target_table_full_name = l3.l3_table\n",
+        "      AND cl.target_column_name = l3.l3_col\n",
+        "    )\n",
+        "),\n",
+        "l5_raw AS (\n",
+        "  SELECT DISTINCT\n",
+        "    l4.l4_table,\n",
+        "    l4.l4_col,\n",
+        "    cl.target_table_full_name as l5_table,\n",
+        "    cl.target_column_name as l5_col\n",
+        "  FROM\n",
+        "    l4_raw l4\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.source_table_full_name = l4.l4_table\n",
+        "        AND cl.source_column_name = l4.l4_col\n",
+        "  WHERE\n",
+        "    cl.target_table_full_name IS NOT NULL\n",
+        "    AND cl.target_column_name IS NOT NULL\n",
+        "    AND cl.target_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.target_table_full_name = l4.l4_table\n",
+        "      AND cl.target_column_name = l4.l4_col\n",
+        "    )\n",
+        "),\n",
+        "l6_raw AS (\n",
+        "  SELECT DISTINCT\n",
+        "    l5.l5_table,\n",
+        "    l5.l5_col,\n",
+        "    cl.target_table_full_name as l6_table,\n",
+        "    cl.target_column_name as l6_col\n",
+        "  FROM\n",
+        "    l5_raw l5\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.source_table_full_name = l5.l5_table\n",
+        "        AND cl.source_column_name = l5.l5_col\n",
+        "  WHERE\n",
+        "    cl.target_table_full_name IS NOT NULL\n",
+        "    AND cl.target_column_name IS NOT NULL\n",
+        "    AND cl.target_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.target_table_full_name = l5.l5_table\n",
+        "      AND cl.target_column_name = l5.l5_col\n",
+        "    )\n",
+        "),\n",
+        "l7_raw AS (\n",
+        "  SELECT DISTINCT\n",
+        "    l6.l6_table,\n",
+        "    l6.l6_col,\n",
+        "    cl.target_table_full_name as l7_table,\n",
+        "    cl.target_column_name as l7_col\n",
+        "  FROM\n",
+        "    l6_raw l6\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.source_table_full_name = l6.l6_table\n",
+        "        AND cl.source_column_name = l6.l6_col\n",
+        "  WHERE\n",
+        "    cl.target_table_full_name IS NOT NULL\n",
+        "    AND cl.target_column_name IS NOT NULL\n",
+        "    AND cl.target_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.target_table_full_name = l6.l6_table\n",
+        "      AND cl.target_column_name = l6.l6_col\n",
+        "    )\n",
+        "),\n",
+        "l8_raw AS (\n",
+        "  SELECT DISTINCT\n",
+        "    l7.l7_table,\n",
+        "    l7.l7_col,\n",
+        "    cl.target_table_full_name as l8_table,\n",
+        "    cl.target_column_name as l8_col\n",
+        "  FROM\n",
+        "    l7_raw l7\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.source_table_full_name = l7.l7_table\n",
+        "        AND cl.source_column_name = l7.l7_col\n",
+        "  WHERE\n",
+        "    cl.target_table_full_name IS NOT NULL\n",
+        "    AND cl.target_column_name IS NOT NULL\n",
+        "    AND cl.target_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.target_table_full_name = l7.l7_table\n",
+        "      AND cl.target_column_name = l7.l7_col\n",
+        "    )\n",
+        "),\n",
+        "l9_raw AS (\n",
+        "  SELECT DISTINCT\n",
+        "    l8.l8_table,\n",
+        "    l8.l8_col,\n",
+        "    cl.target_table_full_name as l9_table,\n",
+        "    cl.target_column_name as l9_col\n",
+        "  FROM\n",
+        "    l8_raw l8\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.source_table_full_name = l8.l8_table\n",
+        "        AND cl.source_column_name = l8.l8_col\n",
+        "  WHERE\n",
+        "    cl.target_table_full_name IS NOT NULL\n",
+        "    AND cl.target_column_name IS NOT NULL\n",
+        "    AND cl.target_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.target_table_full_name = l8.l8_table\n",
+        "      AND cl.target_column_name = l8.l8_col\n",
+        "    )\n",
+        "),\n",
+        "l10_raw AS (\n",
+        "  SELECT DISTINCT\n",
+        "    l9.l9_table,\n",
+        "    l9.l9_col,\n",
+        "    cl.target_table_full_name as l10_table,\n",
+        "    cl.target_column_name as l10_col\n",
+        "  FROM\n",
+        "    l9_raw l9\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.source_table_full_name = l9.l9_table\n",
+        "        AND cl.source_column_name = l9.l9_col\n",
+        "  WHERE\n",
+        "    cl.target_table_full_name IS NOT NULL\n",
+        "    AND cl.target_column_name IS NOT NULL\n",
+        "    AND cl.target_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.target_table_full_name = l9.l9_table\n",
+        "      AND cl.target_column_name = l9.l9_col\n",
+        "    )\n",
+        ")\n",
+        "SELECT\n",
+        "  CONCAT(:schema, '.', :table_name, '.', :column_name) as selected_column,\n",
+        "  CONCAT(REGEXP_EXTRACT(l1.l1_table, '([^.]+\\\\.[^.]+)$', 1), '.', l1.l1_col) as level_1,\n",
+        "  CONCAT(REGEXP_EXTRACT(l2.l2_table, '([^.]+\\\\.[^.]+)$', 1), '.', l2.l2_col) as level_2,\n",
+        "  CONCAT(REGEXP_EXTRACT(l3.l3_table, '([^.]+\\\\.[^.]+)$', 1), '.', l3.l3_col) as level_3,\n",
+        "  CONCAT(REGEXP_EXTRACT(l4.l4_table, '([^.]+\\\\.[^.]+)$', 1), '.', l4.l4_col) as level_4,\n",
+        "  CONCAT(REGEXP_EXTRACT(l5.l5_table, '([^.]+\\\\.[^.]+)$', 1), '.', l5.l5_col) as level_5,\n",
+        "  CONCAT(REGEXP_EXTRACT(l6.l6_table, '([^.]+\\\\.[^.]+)$', 1), '.', l6.l6_col) as level_6,\n",
+        "  CONCAT(REGEXP_EXTRACT(l7.l7_table, '([^.]+\\\\.[^.]+)$', 1), '.', l7.l7_col) as level_7,\n",
+        "  CONCAT(REGEXP_EXTRACT(l8.l8_table, '([^.]+\\\\.[^.]+)$', 1), '.', l8.l8_col) as level_8,\n",
+        "  CONCAT(REGEXP_EXTRACT(l9.l9_table, '([^.]+\\\\.[^.]+)$', 1), '.', l9.l9_col) as level_9,\n",
+        "  CONCAT(REGEXP_EXTRACT(l10.l10_table, '([^.]+\\\\.[^.]+)$', 1), '.', l10.l10_col) as level_10\n",
+        "FROM\n",
+        "  l1_raw l1\n",
+        "    LEFT JOIN l2_raw l2\n",
+        "      ON l2.l1_table = l1.l1_table\n",
+        "      AND l2.l1_col = l1.l1_col\n",
+        "    LEFT JOIN l3_raw l3\n",
+        "      ON l3.l2_table = l2.l2_table\n",
+        "      AND l3.l2_col = l2.l2_col\n",
+        "    LEFT JOIN l4_raw l4\n",
+        "      ON l4.l3_table = l3.l3_table\n",
+        "      AND l4.l3_col = l3.l3_col\n",
+        "    LEFT JOIN l5_raw l5\n",
+        "      ON l5.l4_table = l4.l4_table\n",
+        "      AND l5.l4_col = l4.l4_col\n",
+        "    LEFT JOIN l6_raw l6\n",
+        "      ON l6.l5_table = l5.l5_table\n",
+        "      AND l6.l5_col = l5.l5_col\n",
+        "    LEFT JOIN l7_raw l7\n",
+        "      ON l7.l6_table = l6.l6_table\n",
+        "      AND l7.l6_col = l6.l6_col\n",
+        "    LEFT JOIN l8_raw l8\n",
+        "      ON l8.l7_table = l7.l7_table\n",
+        "      AND l8.l7_col = l7.l7_col\n",
+        "    LEFT JOIN l9_raw l9\n",
+        "      ON l9.l8_table = l8.l8_table\n",
+        "      AND l9.l8_col = l8.l8_col\n",
+        "    LEFT JOIN l10_raw l10\n",
+        "      ON l10.l9_table = l9.l9_table\n",
+        "      AND l10.l9_col = l9.l9_col"
+      ],
+      "parameters": [
+        {
+          "displayName": "Catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING"
+            }
+          }
+        },
+        {
+          "displayName": "Schema",
+          "keyword": "schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING"
+            }
+          }
+        },
+        {
+          "displayName": "Table Name",
+          "keyword": "table_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING"
+            }
+          }
+        },
+        {
+          "displayName": "Column Name",
+          "keyword": "column_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "0436c0e4",
+      "displayName": "US Flow",
+      "queryLines": [
+        "WITH l1_raw AS (\n",
+        "  SELECT DISTINCT\n",
+        "    source_table_full_name as l1_table,\n",
+        "    source_column_name as l1_col\n",
+        "  FROM\n",
+        "    system.access.column_lineage\n",
+        "  WHERE\n",
+        "    target_table_catalog = :catalog\n",
+        "    AND target_table_schema = :schema\n",
+        "    AND target_table_name = :table_name\n",
+        "    AND target_column_name = :column_name\n",
+        "    AND source_table_full_name IS NOT NULL\n",
+        "    AND source_column_name IS NOT NULL\n",
+        "    AND source_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "),\n",
+        "l2_raw AS (\n",
+        "  SELECT DISTINCT\n",
+        "    l1.l1_table,\n",
+        "    l1.l1_col,\n",
+        "    cl.source_table_full_name as l2_table,\n",
+        "    cl.source_column_name as l2_col\n",
+        "  FROM\n",
+        "    l1_raw l1\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.target_table_full_name = l1.l1_table\n",
+        "        AND cl.target_column_name = l1.l1_col\n",
+        "  WHERE\n",
+        "    cl.source_table_full_name IS NOT NULL\n",
+        "    AND cl.source_column_name IS NOT NULL\n",
+        "    AND cl.source_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.source_table_full_name = l1.l1_table\n",
+        "      AND cl.source_column_name = l1.l1_col\n",
+        "    )\n",
+        "),\n",
+        "l3_raw AS (\n",
+        "  SELECT DISTINCT\n",
+        "    l2.l2_table,\n",
+        "    l2.l2_col,\n",
+        "    cl.source_table_full_name as l3_table,\n",
+        "    cl.source_column_name as l3_col\n",
+        "  FROM\n",
+        "    l2_raw l2\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.target_table_full_name = l2.l2_table\n",
+        "        AND cl.target_column_name = l2.l2_col\n",
+        "  WHERE\n",
+        "    cl.source_table_full_name IS NOT NULL\n",
+        "    AND cl.source_column_name IS NOT NULL\n",
+        "    AND cl.source_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.source_table_full_name = l2.l2_table\n",
+        "      AND cl.source_column_name = l2.l2_col\n",
+        "    )\n",
+        "),\n",
+        "l4_raw AS (\n",
+        "  SELECT DISTINCT\n",
+        "    l3.l3_table,\n",
+        "    l3.l3_col,\n",
+        "    cl.source_table_full_name as l4_table,\n",
+        "    cl.source_column_name as l4_col\n",
+        "  FROM\n",
+        "    l3_raw l3\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.target_table_full_name = l3.l3_table\n",
+        "        AND cl.target_column_name = l3.l3_col\n",
+        "  WHERE\n",
+        "    cl.source_table_full_name IS NOT NULL\n",
+        "    AND cl.source_column_name IS NOT NULL\n",
+        "    AND cl.source_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.source_table_full_name = l3.l3_table\n",
+        "      AND cl.source_column_name = l3.l3_col\n",
+        "    )\n",
+        "),\n",
+        "l5_raw AS (\n",
+        "  SELECT DISTINCT\n",
+        "    l4.l4_table,\n",
+        "    l4.l4_col,\n",
+        "    cl.source_table_full_name as l5_table,\n",
+        "    cl.source_column_name as l5_col\n",
+        "  FROM\n",
+        "    l4_raw l4\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.target_table_full_name = l4.l4_table\n",
+        "        AND cl.target_column_name = l4.l4_col\n",
+        "  WHERE\n",
+        "    cl.source_table_full_name IS NOT NULL\n",
+        "    AND cl.source_column_name IS NOT NULL\n",
+        "    AND cl.source_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.source_table_full_name = l4.l4_table\n",
+        "      AND cl.source_column_name = l4.l4_col\n",
+        "    )\n",
+        "),\n",
+        "l6_raw AS (\n",
+        "  SELECT DISTINCT\n",
+        "    l5.l5_table,\n",
+        "    l5.l5_col,\n",
+        "    cl.source_table_full_name as l6_table,\n",
+        "    cl.source_column_name as l6_col\n",
+        "  FROM\n",
+        "    l5_raw l5\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.target_table_full_name = l5.l5_table\n",
+        "        AND cl.target_column_name = l5.l5_col\n",
+        "  WHERE\n",
+        "    cl.source_table_full_name IS NOT NULL\n",
+        "    AND cl.source_column_name IS NOT NULL\n",
+        "    AND cl.source_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.source_table_full_name = l5.l5_table\n",
+        "      AND cl.source_column_name = l5.l5_col\n",
+        "    )\n",
+        "),\n",
+        "l7_raw AS (\n",
+        "  SELECT DISTINCT\n",
+        "    l6.l6_table,\n",
+        "    l6.l6_col,\n",
+        "    cl.source_table_full_name as l7_table,\n",
+        "    cl.source_column_name as l7_col\n",
+        "  FROM\n",
+        "    l6_raw l6\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.target_table_full_name = l6.l6_table\n",
+        "        AND cl.target_column_name = l6.l6_col\n",
+        "  WHERE\n",
+        "    cl.source_table_full_name IS NOT NULL\n",
+        "    AND cl.source_column_name IS NOT NULL\n",
+        "    AND cl.source_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.source_table_full_name = l6.l6_table\n",
+        "      AND cl.source_column_name = l6.l6_col\n",
+        "    )\n",
+        "),\n",
+        "l8_raw AS (\n",
+        "  SELECT DISTINCT\n",
+        "    l7.l7_table,\n",
+        "    l7.l7_col,\n",
+        "    cl.source_table_full_name as l8_table,\n",
+        "    cl.source_column_name as l8_col\n",
+        "  FROM\n",
+        "    l7_raw l7\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.target_table_full_name = l7.l7_table\n",
+        "        AND cl.target_column_name = l7.l7_col\n",
+        "  WHERE\n",
+        "    cl.source_table_full_name IS NOT NULL\n",
+        "    AND cl.source_column_name IS NOT NULL\n",
+        "    AND cl.source_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.source_table_full_name = l7.l7_table\n",
+        "      AND cl.source_column_name = l7.l7_col\n",
+        "    )\n",
+        "),\n",
+        "l9_raw AS (\n",
+        "  SELECT DISTINCT\n",
+        "    l8.l8_table,\n",
+        "    l8.l8_col,\n",
+        "    cl.source_table_full_name as l9_table,\n",
+        "    cl.source_column_name as l9_col\n",
+        "  FROM\n",
+        "    l8_raw l8\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.target_table_full_name = l8.l8_table\n",
+        "        AND cl.target_column_name = l8.l8_col\n",
+        "  WHERE\n",
+        "    cl.source_table_full_name IS NOT NULL\n",
+        "    AND cl.source_column_name IS NOT NULL\n",
+        "    AND cl.source_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.source_table_full_name = l8.l8_table\n",
+        "      AND cl.source_column_name = l8.l8_col\n",
+        "    )\n",
+        "),\n",
+        "l10_raw AS (\n",
+        "  SELECT DISTINCT\n",
+        "    l9.l9_table,\n",
+        "    l9.l9_col,\n",
+        "    cl.source_table_full_name as l10_table,\n",
+        "    cl.source_column_name as l10_col\n",
+        "  FROM\n",
+        "    l9_raw l9\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.target_table_full_name = l9.l9_table\n",
+        "        AND cl.target_column_name = l9.l9_col\n",
+        "  WHERE\n",
+        "    cl.source_table_full_name IS NOT NULL\n",
+        "    AND cl.source_column_name IS NOT NULL\n",
+        "    AND cl.source_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.source_table_full_name = l9.l9_table\n",
+        "      AND cl.source_column_name = l9.l9_col\n",
+        "    )\n",
+        ")\n",
+        "SELECT\n",
+        "  CONCAT(REGEXP_EXTRACT(l10.l10_table, '([^.]+\\\\.[^.]+)$', 1), '.', l10.l10_col) as level_10,\n",
+        "  CONCAT(REGEXP_EXTRACT(l9.l9_table, '([^.]+\\\\.[^.]+)$', 1), '.', l9.l9_col) as level_9,\n",
+        "  CONCAT(REGEXP_EXTRACT(l8.l8_table, '([^.]+\\\\.[^.]+)$', 1), '.', l8.l8_col) as level_8,\n",
+        "  CONCAT(REGEXP_EXTRACT(l7.l7_table, '([^.]+\\\\.[^.]+)$', 1), '.', l7.l7_col) as level_7,\n",
+        "  CONCAT(REGEXP_EXTRACT(l6.l6_table, '([^.]+\\\\.[^.]+)$', 1), '.', l6.l6_col) as level_6,\n",
+        "  CONCAT(REGEXP_EXTRACT(l5.l5_table, '([^.]+\\\\.[^.]+)$', 1), '.', l5.l5_col) as level_5,\n",
+        "  CONCAT(REGEXP_EXTRACT(l4.l4_table, '([^.]+\\\\.[^.]+)$', 1), '.', l4.l4_col) as level_4,\n",
+        "  CONCAT(REGEXP_EXTRACT(l3.l3_table, '([^.]+\\\\.[^.]+)$', 1), '.', l3.l3_col) as level_3,\n",
+        "  CONCAT(REGEXP_EXTRACT(l2.l2_table, '([^.]+\\\\.[^.]+)$', 1), '.', l2.l2_col) as level_2,\n",
+        "  CONCAT(REGEXP_EXTRACT(l1.l1_table, '([^.]+\\\\.[^.]+)$', 1), '.', l1.l1_col) as level_1,\n",
+        "  CONCAT(:schema, '.', :table_name, '.', :column_name) as selected_column\n",
+        "FROM\n",
+        "  l1_raw l1\n",
+        "    LEFT JOIN l2_raw l2\n",
+        "      ON l2.l1_table = l1.l1_table\n",
+        "      AND l2.l1_col = l1.l1_col\n",
+        "    LEFT JOIN l3_raw l3\n",
+        "      ON l3.l2_table = l2.l2_table\n",
+        "      AND l3.l2_col = l2.l2_col\n",
+        "    LEFT JOIN l4_raw l4\n",
+        "      ON l4.l3_table = l3.l3_table\n",
+        "      AND l4.l3_col = l3.l3_col\n",
+        "    LEFT JOIN l5_raw l5\n",
+        "      ON l5.l4_table = l4.l4_table\n",
+        "      AND l5.l4_col = l4.l4_col\n",
+        "    LEFT JOIN l6_raw l6\n",
+        "      ON l6.l5_table = l5.l5_table\n",
+        "      AND l6.l5_col = l5.l5_col\n",
+        "    LEFT JOIN l7_raw l7\n",
+        "      ON l7.l6_table = l6.l6_table\n",
+        "      AND l7.l6_col = l6.l6_col\n",
+        "    LEFT JOIN l8_raw l8\n",
+        "      ON l8.l7_table = l7.l7_table\n",
+        "      AND l8.l7_col = l7.l7_col\n",
+        "    LEFT JOIN l9_raw l9\n",
+        "      ON l9.l8_table = l8.l8_table\n",
+        "      AND l9.l8_col = l8.l8_col\n",
+        "    LEFT JOIN l10_raw l10\n",
+        "      ON l10.l9_table = l9.l9_table\n",
+        "      AND l10.l9_col = l9.l9_col"
+      ],
+      "parameters": [
+        {
+          "displayName": "Catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING"
+            }
+          }
+        },
+        {
+          "displayName": "Schema",
+          "keyword": "schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING"
+            }
+          }
+        },
+        {
+          "displayName": "Table Name",
+          "keyword": "table_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING"
+            }
+          }
+        },
+        {
+          "displayName": "Column Name",
+          "keyword": "column_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds_flow_table",
+      "displayName": "DS Flow Table",
+      "queryLines": [
+        "WITH l1 AS (\n",
+        "  SELECT DISTINCT\n",
+        "    target_table_full_name as l1_table,\n",
+        "    target_column_name as l1_col\n",
+        "  FROM\n",
+        "    system.access.column_lineage\n",
+        "  WHERE\n",
+        "    source_table_catalog = :catalog\n",
+        "    AND source_table_schema = :schema\n",
+        "    AND source_table_name = :table_name\n",
+        "    AND source_column_name = :column_name\n",
+        "    AND target_table_full_name IS NOT NULL\n",
+        "    AND target_column_name IS NOT NULL\n",
+        "    AND target_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "),\n",
+        "l2 AS (\n",
+        "  SELECT DISTINCT\n",
+        "    a.l1_table,\n",
+        "    a.l1_col,\n",
+        "    cl.target_table_full_name as l2_table,\n",
+        "    cl.target_column_name as l2_col\n",
+        "  FROM\n",
+        "    l1 a\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.source_table_full_name = a.l1_table\n",
+        "        AND cl.source_column_name = a.l1_col\n",
+        "  WHERE\n",
+        "    cl.target_table_full_name IS NOT NULL\n",
+        "    AND cl.target_column_name IS NOT NULL\n",
+        "    AND cl.target_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.target_table_full_name = a.l1_table\n",
+        "      AND cl.target_column_name = a.l1_col\n",
+        "    )\n",
+        "),\n",
+        "l3 AS (\n",
+        "  SELECT DISTINCT\n",
+        "    b.l2_table,\n",
+        "    b.l2_col,\n",
+        "    cl.target_table_full_name as l3_table,\n",
+        "    cl.target_column_name as l3_col\n",
+        "  FROM\n",
+        "    l2 b\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.source_table_full_name = b.l2_table\n",
+        "        AND cl.source_column_name = b.l2_col\n",
+        "  WHERE\n",
+        "    cl.target_table_full_name IS NOT NULL\n",
+        "    AND cl.target_column_name IS NOT NULL\n",
+        "    AND cl.target_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.target_table_full_name = b.l2_table\n",
+        "      AND cl.target_column_name = b.l2_col\n",
+        "    )\n",
+        "),\n",
+        "l4 AS (\n",
+        "  SELECT DISTINCT\n",
+        "    c.l3_table,\n",
+        "    c.l3_col,\n",
+        "    cl.target_table_full_name as l4_table,\n",
+        "    cl.target_column_name as l4_col\n",
+        "  FROM\n",
+        "    l3 c\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.source_table_full_name = c.l3_table\n",
+        "        AND cl.source_column_name = c.l3_col\n",
+        "  WHERE\n",
+        "    cl.target_table_full_name IS NOT NULL\n",
+        "    AND cl.target_column_name IS NOT NULL\n",
+        "    AND cl.target_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.target_table_full_name = c.l3_table\n",
+        "      AND cl.target_column_name = c.l3_col\n",
+        "    )\n",
+        "),\n",
+        "l5 AS (\n",
+        "  SELECT DISTINCT\n",
+        "    d.l4_table,\n",
+        "    d.l4_col,\n",
+        "    cl.target_table_full_name as l5_table,\n",
+        "    cl.target_column_name as l5_col\n",
+        "  FROM\n",
+        "    l4 d\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.source_table_full_name = d.l4_table\n",
+        "        AND cl.source_column_name = d.l4_col\n",
+        "  WHERE\n",
+        "    cl.target_table_full_name IS NOT NULL\n",
+        "    AND cl.target_column_name IS NOT NULL\n",
+        "    AND cl.target_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.target_table_full_name = d.l4_table\n",
+        "      AND cl.target_column_name = d.l4_col\n",
+        "    )\n",
+        ")\n",
+        "SELECT\n",
+        "  CONCAT(:catalog, '.', :schema, '.', :table_name, '.', :column_name) as selected_column,\n",
+        "  CONCAT(l1.l1_table, '.', l1.l1_col) as level_1,\n",
+        "  CONCAT(l2.l2_table, '.', l2.l2_col) as level_2,\n",
+        "  CONCAT(l3.l3_table, '.', l3.l3_col) as level_3,\n",
+        "  CONCAT(l4.l4_table, '.', l4.l4_col) as level_4,\n",
+        "  CONCAT(l5.l5_table, '.', l5.l5_col) as level_5\n",
+        "FROM\n",
+        "  l1\n",
+        "    LEFT JOIN l2\n",
+        "      ON l2.l1_table = l1.l1_table\n",
+        "      AND l2.l1_col = l1.l1_col\n",
+        "    LEFT JOIN l3\n",
+        "      ON l3.l2_table = l2.l2_table\n",
+        "      AND l3.l2_col = l2.l2_col\n",
+        "    LEFT JOIN l4\n",
+        "      ON l4.l3_table = l3.l3_table\n",
+        "      AND l4.l3_col = l3.l3_col\n",
+        "    LEFT JOIN l5\n",
+        "      ON l5.l4_table = l4.l4_table\n",
+        "      AND l5.l4_col = l4.l4_col"
+      ],
+      "parameters": [
+        {
+          "displayName": "Catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING"
+            }
+          }
+        },
+        {
+          "displayName": "Schema",
+          "keyword": "schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING"
+            }
+          }
+        },
+        {
+          "displayName": "Table Name",
+          "keyword": "table_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING"
+            }
+          }
+        },
+        {
+          "displayName": "Column Name",
+          "keyword": "column_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "us_flow_table",
+      "displayName": "US Flow Table",
+      "queryLines": [
+        "WITH l1 AS (\n",
+        "  SELECT DISTINCT\n",
+        "    source_table_full_name as l1_table,\n",
+        "    source_column_name as l1_col\n",
+        "  FROM\n",
+        "    system.access.column_lineage\n",
+        "  WHERE\n",
+        "    target_table_catalog = :catalog\n",
+        "    AND target_table_schema = :schema\n",
+        "    AND target_table_name = :table_name\n",
+        "    AND target_column_name = :column_name\n",
+        "    AND source_table_full_name IS NOT NULL\n",
+        "    AND source_column_name IS NOT NULL\n",
+        "    AND source_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "),\n",
+        "l2 AS (\n",
+        "  SELECT DISTINCT\n",
+        "    a.l1_table,\n",
+        "    a.l1_col,\n",
+        "    cl.source_table_full_name as l2_table,\n",
+        "    cl.source_column_name as l2_col\n",
+        "  FROM\n",
+        "    l1 a\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.target_table_full_name = a.l1_table\n",
+        "        AND cl.target_column_name = a.l1_col\n",
+        "  WHERE\n",
+        "    cl.source_table_full_name IS NOT NULL\n",
+        "    AND cl.source_column_name IS NOT NULL\n",
+        "    AND cl.source_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.source_table_full_name = a.l1_table\n",
+        "      AND cl.source_column_name = a.l1_col\n",
+        "    )\n",
+        "),\n",
+        "l3 AS (\n",
+        "  SELECT DISTINCT\n",
+        "    b.l2_table,\n",
+        "    b.l2_col,\n",
+        "    cl.source_table_full_name as l3_table,\n",
+        "    cl.source_column_name as l3_col\n",
+        "  FROM\n",
+        "    l2 b\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.target_table_full_name = b.l2_table\n",
+        "        AND cl.target_column_name = b.l2_col\n",
+        "  WHERE\n",
+        "    cl.source_table_full_name IS NOT NULL\n",
+        "    AND cl.source_column_name IS NOT NULL\n",
+        "    AND cl.source_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.source_table_full_name = b.l2_table\n",
+        "      AND cl.source_column_name = b.l2_col\n",
+        "    )\n",
+        "),\n",
+        "l4 AS (\n",
+        "  SELECT DISTINCT\n",
+        "    c.l3_table,\n",
+        "    c.l3_col,\n",
+        "    cl.source_table_full_name as l4_table,\n",
+        "    cl.source_column_name as l4_col\n",
+        "  FROM\n",
+        "    l3 c\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.target_table_full_name = c.l3_table\n",
+        "        AND cl.target_column_name = c.l3_col\n",
+        "  WHERE\n",
+        "    cl.source_table_full_name IS NOT NULL\n",
+        "    AND cl.source_column_name IS NOT NULL\n",
+        "    AND cl.source_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.source_table_full_name = c.l3_table\n",
+        "      AND cl.source_column_name = c.l3_col\n",
+        "    )\n",
+        "),\n",
+        "l5 AS (\n",
+        "  SELECT DISTINCT\n",
+        "    d.l4_table,\n",
+        "    d.l4_col,\n",
+        "    cl.source_table_full_name as l5_table,\n",
+        "    cl.source_column_name as l5_col\n",
+        "  FROM\n",
+        "    l4 d\n",
+        "      JOIN system.access.column_lineage cl\n",
+        "        ON cl.target_table_full_name = d.l4_table\n",
+        "        AND cl.target_column_name = d.l4_col\n",
+        "  WHERE\n",
+        "    cl.source_table_full_name IS NOT NULL\n",
+        "    AND cl.source_column_name IS NOT NULL\n",
+        "    AND cl.source_table_full_name != CONCAT(:catalog, '.', :schema, '.', :table_name)\n",
+        "    AND NOT (\n",
+        "      cl.source_table_full_name = d.l4_table\n",
+        "      AND cl.source_column_name = d.l4_col\n",
+        "    )\n",
+        ")\n",
+        "SELECT\n",
+        "  CONCAT(l5.l5_table, '.', l5.l5_col) as level_5,\n",
+        "  CONCAT(l4.l4_table, '.', l4.l4_col) as level_4,\n",
+        "  CONCAT(l3.l3_table, '.', l3.l3_col) as level_3,\n",
+        "  CONCAT(l2.l2_table, '.', l2.l2_col) as level_2,\n",
+        "  CONCAT(l1.l1_table, '.', l1.l1_col) as level_1,\n",
+        "  CONCAT(:catalog, '.', :schema, '.', :table_name, '.', :column_name) as selected_column\n",
+        "FROM\n",
+        "  l1\n",
+        "    LEFT JOIN l2\n",
+        "      ON l2.l1_table = l1.l1_table\n",
+        "      AND l2.l1_col = l1.l1_col\n",
+        "    LEFT JOIN l3\n",
+        "      ON l3.l2_table = l2.l2_table\n",
+        "      AND l3.l2_col = l2.l2_col\n",
+        "    LEFT JOIN l4\n",
+        "      ON l4.l3_table = l3.l3_table\n",
+        "      AND l4.l3_col = l3.l3_col\n",
+        "    LEFT JOIN l5\n",
+        "      ON l5.l4_table = l4.l4_table\n",
+        "      AND l5.l4_col = l4.l4_col"
+      ],
+      "parameters": [
+        {
+          "displayName": "Catalog",
+          "keyword": "catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING"
+            }
+          }
+        },
+        {
+          "displayName": "Schema",
+          "keyword": "schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING"
+            }
+          }
+        },
+        {
+          "displayName": "Table Name",
+          "keyword": "table_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING"
+            }
+          }
+        },
+        {
+          "displayName": "Column Name",
+          "keyword": "column_name",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "9aebfba7",
+      "displayName": "Data Lineage",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Lineage Tracker\n",
+                "Unified entity-type-first navigation with multi-level dependency tracking"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "counter_downstream_entities",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "8130b719",
+                  "fields": [
+                    {
+                      "name": "countdistinct(related_id)",
+                      "expression": "COUNT(DISTINCT `related_id`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Total Downstream Assets",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "countdistinct(related_id)",
+                  "displayName": "Downstream Entities"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 6,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "counter_upstream_entities",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "18c753db",
+                  "fields": [
+                    {
+                      "name": "countdistinct(related_id)",
+                      "expression": "COUNT(DISTINCT `related_id`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Total Upstream Assets",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "countdistinct(related_id)",
+                  "displayName": "Upstream Entities"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 3,
+            "width": 6,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "bar_downstream_by_type",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "8130b719",
+                  "fields": [
+                    {
+                      "name": "related_type",
+                      "expression": "`related_type`"
+                    },
+                    {
+                      "name": "countdistinct(related_id)",
+                      "expression": "COUNT(DISTINCT `related_id`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Downstream by Type",
+                "showTitle": true
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "related_type",
+                  "displayName": "Type",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "countdistinct(related_id)",
+                  "displayName": "Distinct Entities",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "related_type",
+                  "legend": {
+                    "hide": true
+                  },
+                  "displayName": "Type",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "bar_upstream_by_type",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "18c753db",
+                  "fields": [
+                    {
+                      "name": "related_type",
+                      "expression": "`related_type`"
+                    },
+                    {
+                      "name": "countdistinct(related_id)",
+                      "expression": "COUNT(DISTINCT `related_id`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Upstream by Type",
+                "showTitle": true
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "related_type",
+                  "displayName": "Type",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "countdistinct(related_id)",
+                  "displayName": "Distinct Entities",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "related_type",
+                  "legend": {
+                    "hide": true
+                  },
+                  "displayName": "Type",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 6,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "table_downstream_detail",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "8130b719",
+                  "fields": [
+                    {
+                      "name": "Level Label",
+                      "expression": "`Level Label`"
+                    },
+                    {
+                      "name": "related_type",
+                      "expression": "`related_type`"
+                    },
+                    {
+                      "name": "related_id",
+                      "expression": "`related_id`"
+                    },
+                    {
+                      "name": "created_by",
+                      "expression": "`created_by`"
+                    },
+                    {
+                      "name": "event_time",
+                      "expression": "`event_time`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Downstream Detail",
+                "showTitle": true
+              },
+              "rowsPerPage": 25,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "Level Label",
+                    "displayName": "Level"
+                  },
+                  {
+                    "fieldName": "related_type",
+                    "displayName": "Type"
+                  },
+                  {
+                    "fieldName": "related_id",
+                    "displayName": "ID"
+                  },
+                  {
+                    "fieldName": "created_by",
+                    "displayName": "Created By"
+                  },
+                  {
+                    "fieldName": "event_time",
+                    "displayName": "Event Time"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "table_upstream_detail",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "18c753db",
+                  "fields": [
+                    {
+                      "name": "Level Label",
+                      "expression": "`Level Label`"
+                    },
+                    {
+                      "name": "related_type",
+                      "expression": "`related_type`"
+                    },
+                    {
+                      "name": "related_id",
+                      "expression": "`related_id`"
+                    },
+                    {
+                      "name": "created_by",
+                      "expression": "`created_by`"
+                    },
+                    {
+                      "name": "event_time",
+                      "expression": "`event_time`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Upstream Detail",
+                "showTitle": true
+              },
+              "rowsPerPage": 25,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "Level Label",
+                    "displayName": "Level"
+                  },
+                  {
+                    "fieldName": "related_type",
+                    "displayName": "Type"
+                  },
+                  {
+                    "fieldName": "related_id",
+                    "displayName": "ID"
+                  },
+                  {
+                    "fieldName": "created_by",
+                    "displayName": "Created By"
+                  },
+                  {
+                    "fieldName": "event_time",
+                    "displayName": "Event Time"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 12,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "filter_entity_type",
+            "queries": [
+              {
+                "name": "dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271eba821e40c30d113fc4_entity_type",
+                "query": {
+                  "datasetName": "b519dbbc",
+                  "fields": [
+                    {
+                      "name": "entity_type",
+                      "expression": "`entity_type`"
+                    },
+                    {
+                      "name": "entity_type_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ec0bceb4e880ef8843c_entity_type",
+                "query": {
+                  "datasetName": "af518e46",
+                  "parameters": [
+                    {
+                      "name": "entity_type",
+                      "keyword": "entity_type"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271e77b1cde5deb005c065_entity_type",
+                "query": {
+                  "datasetName": "8130b719",
+                  "parameters": [
+                    {
+                      "name": "entity_type",
+                      "keyword": "entity_type"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ea08bf5a5ddd259cc5c_entity_type",
+                "query": {
+                  "datasetName": "18c753db",
+                  "parameters": [
+                    {
+                      "name": "entity_type",
+                      "keyword": "entity_type"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Asset Type",
+                "showTitle": true
+              },
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "entity_type",
+                    "queryName": "dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271eba821e40c30d113fc4_entity_type"
+                  },
+                  {
+                    "parameterName": "entity_type",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ec0bceb4e880ef8843c_entity_type"
+                  },
+                  {
+                    "parameterName": "entity_type",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271e77b1cde5deb005c065_entity_type"
+                  },
+                  {
+                    "parameterName": "entity_type",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ea08bf5a5ddd259cc5c_entity_type"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "filter_entity_id",
+            "queries": [
+              {
+                "name": "dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ec0bceb4e880ef8843c_entity_id",
+                "query": {
+                  "datasetName": "af518e46",
+                  "fields": [
+                    {
+                      "name": "entity_id",
+                      "expression": "`entity_id`"
+                    },
+                    {
+                      "name": "entity_id_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271e77b1cde5deb005c065_entity_id",
+                "query": {
+                  "datasetName": "8130b719",
+                  "parameters": [
+                    {
+                      "name": "entity_id",
+                      "keyword": "entity_id"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ea08bf5a5ddd259cc5c_entity_id",
+                "query": {
+                  "datasetName": "18c753db",
+                  "parameters": [
+                    {
+                      "name": "entity_id",
+                      "keyword": "entity_id"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Asset ID",
+                "showTitle": true
+              },
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "entity_id",
+                    "queryName": "dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ec0bceb4e880ef8843c_entity_id"
+                  },
+                  {
+                    "parameterName": "entity_id",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271e77b1cde5deb005c065_entity_id"
+                  },
+                  {
+                    "parameterName": "entity_id",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ea08bf5a5ddd259cc5c_entity_id"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 6,
+            "height": 1
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "column_lineage",
+      "displayName": "Column Lineage",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Column Lineage\n",
+                "Select a table and column to trace its downstream and upstream flow across all dependency levels"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "filter_column",
+            "queries": [
+              {
+                "name": "dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ed28964a92c59a35416_column_name",
+                "query": {
+                  "datasetName": "791afe56",
+                  "fields": [
+                    {
+                      "name": "column_name",
+                      "expression": "`column_name`"
+                    },
+                    {
+                      "name": "column_name_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ec6b1a3aac601f7cde7_column_name",
+                "query": {
+                  "datasetName": "bed02bd2",
+                  "parameters": [
+                    {
+                      "name": "column_name",
+                      "keyword": "column_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ecc97475f76e4028c5a_column_name",
+                "query": {
+                  "datasetName": "7f35a271",
+                  "parameters": [
+                    {
+                      "name": "column_name",
+                      "keyword": "column_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ee382da7f68834e0e14_column_name",
+                "query": {
+                  "datasetName": "2b55c299",
+                  "parameters": [
+                    {
+                      "name": "column_name",
+                      "keyword": "column_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271eeabcf140ed7f9e559d_column_name",
+                "query": {
+                  "datasetName": "0436c0e4",
+                  "parameters": [
+                    {
+                      "name": "column_name",
+                      "keyword": "column_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f139b3912a1a938ae8f98148a83d31_column_name",
+                "query": {
+                  "datasetName": "ds_flow_table",
+                  "parameters": [
+                    {
+                      "name": "column_name",
+                      "keyword": "column_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f139b41923145095505ff32ce6bde1_column_name",
+                "query": {
+                  "datasetName": "us_flow_table",
+                  "parameters": [
+                    {
+                      "name": "column_name",
+                      "keyword": "column_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Column",
+                "showTitle": true
+              },
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "column_name",
+                    "queryName": "dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ed28964a92c59a35416_column_name"
+                  },
+                  {
+                    "parameterName": "column_name",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ec6b1a3aac601f7cde7_column_name"
+                  },
+                  {
+                    "parameterName": "column_name",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ecc97475f76e4028c5a_column_name"
+                  },
+                  {
+                    "parameterName": "column_name",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ee382da7f68834e0e14_column_name"
+                  },
+                  {
+                    "parameterName": "column_name",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271eeabcf140ed7f9e559d_column_name"
+                  },
+                  {
+                    "parameterName": "column_name",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f139b3912a1a938ae8f98148a83d31_column_name"
+                  },
+                  {
+                    "parameterName": "column_name",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f139b41923145095505ff32ce6bde1_column_name"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "counter_downstream",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "bed02bd2",
+                  "fields": [
+                    {
+                      "name": "countdistinct(Target Key)",
+                      "expression": "COUNT(DISTINCT `Target Key`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Downstream Column Mappings",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "countdistinct(Target Key)",
+                  "displayName": "Downstream Columns"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "counter_upstream",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "7f35a271",
+                  "fields": [
+                    {
+                      "name": "countdistinct(Source Key)",
+                      "expression": "COUNT(DISTINCT `Source Key`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Upstream Column Mappings",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "countdistinct(Source Key)",
+                  "displayName": "Upstream Columns"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "sankey_flow",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "2b55c299",
+                  "fields": [
+                    {
+                      "name": "selected_column",
+                      "expression": "`selected_column`"
+                    },
+                    {
+                      "name": "level_1",
+                      "expression": "`level_1`"
+                    },
+                    {
+                      "name": "level_2",
+                      "expression": "`level_2`"
+                    },
+                    {
+                      "name": "level_3",
+                      "expression": "`level_3`"
+                    },
+                    {
+                      "name": "level_4",
+                      "expression": "`level_4`"
+                    },
+                    {
+                      "name": "level_5",
+                      "expression": "`level_5`"
+                    },
+                    {
+                      "name": "level_6",
+                      "expression": "`level_6`"
+                    },
+                    {
+                      "name": "level_7",
+                      "expression": "`level_7`"
+                    },
+                    {
+                      "name": "level_8",
+                      "expression": "`level_8`"
+                    },
+                    {
+                      "name": "level_9",
+                      "expression": "`level_9`"
+                    },
+                    {
+                      "name": "level_10",
+                      "expression": "`level_10`"
+                    },
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "frame": {
+                "title": "Downstream Column Flow",
+                "showTitle": true
+              },
+              "widgetType": "sankey",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "displayName": "Count"
+                },
+                "stages": [
+                  {
+                    "fieldName": "selected_column",
+                    "displayName": "Selected Column"
+                  },
+                  {
+                    "fieldName": "level_1",
+                    "displayName": "Level 1"
+                  },
+                  {
+                    "fieldName": "level_2",
+                    "displayName": "Level 2"
+                  },
+                  {
+                    "fieldName": "level_3",
+                    "displayName": "Level 3"
+                  },
+                  {
+                    "fieldName": "level_4",
+                    "displayName": "Level 4"
+                  },
+                  {
+                    "fieldName": "level_5",
+                    "displayName": "Level 5"
+                  },
+                  {
+                    "fieldName": "level_6",
+                    "displayName": "Level 6"
+                  },
+                  {
+                    "fieldName": "level_7",
+                    "displayName": "Level 7"
+                  },
+                  {
+                    "fieldName": "level_8",
+                    "displayName": "Level 8"
+                  },
+                  {
+                    "fieldName": "level_9",
+                    "displayName": "Level 9"
+                  },
+                  {
+                    "fieldName": "level_10",
+                    "displayName": "Level 10"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 12,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "table_downstream",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "bed02bd2",
+                  "fields": [
+                    {
+                      "name": "Level Label",
+                      "expression": "`Level Label`"
+                    },
+                    {
+                      "name": "Target Label",
+                      "expression": "`Target Label`"
+                    },
+                    {
+                      "name": "target_table",
+                      "expression": "`target_table`"
+                    },
+                    {
+                      "name": "target_col",
+                      "expression": "`target_col`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Downstream Column Detail",
+                "showTitle": true
+              },
+              "rowsPerPage": 25,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "Level Label",
+                    "displayName": "Level"
+                  },
+                  {
+                    "fieldName": "Target Label",
+                    "displayName": "Target"
+                  },
+                  {
+                    "fieldName": "target_table",
+                    "displayName": "Full Target Table"
+                  },
+                  {
+                    "fieldName": "target_col",
+                    "displayName": "Target Column"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 23,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "table_upstream",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "7f35a271",
+                  "fields": [
+                    {
+                      "name": "Level Label",
+                      "expression": "`Level Label`"
+                    },
+                    {
+                      "name": "Source Label",
+                      "expression": "`Source Label`"
+                    },
+                    {
+                      "name": "source_table",
+                      "expression": "`source_table`"
+                    },
+                    {
+                      "name": "source_col",
+                      "expression": "`source_col`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Upstream Column Detail",
+                "showTitle": true
+              },
+              "rowsPerPage": 25,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "Level Label",
+                    "displayName": "Level"
+                  },
+                  {
+                    "fieldName": "Source Label",
+                    "displayName": "Source"
+                  },
+                  {
+                    "fieldName": "source_table",
+                    "displayName": "Full Source Table"
+                  },
+                  {
+                    "fieldName": "source_col",
+                    "displayName": "Source Column"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 23,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "sankey_upstream",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "0436c0e4",
+                  "fields": [
+                    {
+                      "name": "level_2",
+                      "expression": "`level_2`"
+                    },
+                    {
+                      "name": "level_1",
+                      "expression": "`level_1`"
+                    },
+                    {
+                      "name": "selected_column",
+                      "expression": "`selected_column`"
+                    },
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "frame": {
+                "title": "Upstream Column Flow",
+                "showTitle": true
+              },
+              "widgetType": "sankey",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "displayName": "Count"
+                },
+                "stages": [
+                  {
+                    "fieldName": "level_2",
+                    "displayName": "Level 2"
+                  },
+                  {
+                    "fieldName": "level_1",
+                    "displayName": "Level 1"
+                  },
+                  {
+                    "fieldName": "selected_column",
+                    "displayName": "Selected Column"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 12,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "us_flow_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "us_flow_table",
+                  "fields": [
+                    {
+                      "name": "level_5",
+                      "expression": "`level_5`"
+                    },
+                    {
+                      "name": "level_4",
+                      "expression": "`level_4`"
+                    },
+                    {
+                      "name": "level_3",
+                      "expression": "`level_3`"
+                    },
+                    {
+                      "name": "level_2",
+                      "expression": "`level_2`"
+                    },
+                    {
+                      "name": "level_1",
+                      "expression": "`level_1`"
+                    },
+                    {
+                      "name": "selected_column",
+                      "expression": "`selected_column`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Upstream Column Flow (Table)",
+                "showTitle": true
+              },
+              "rowsPerPage": 25,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "level_5",
+                    "displayName": "← Level 5"
+                  },
+                  {
+                    "fieldName": "level_4",
+                    "displayName": "← Level 4"
+                  },
+                  {
+                    "fieldName": "level_3",
+                    "displayName": "← Level 3"
+                  },
+                  {
+                    "fieldName": "level_2",
+                    "displayName": "← Level 2"
+                  },
+                  {
+                    "fieldName": "level_1",
+                    "displayName": "← Level 1"
+                  },
+                  {
+                    "fieldName": "selected_column",
+                    "displayName": "Selected Column"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 12,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "ds_flow_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_flow_table",
+                  "fields": [
+                    {
+                      "name": "selected_column",
+                      "expression": "`selected_column`"
+                    },
+                    {
+                      "name": "level_1",
+                      "expression": "`level_1`"
+                    },
+                    {
+                      "name": "level_2",
+                      "expression": "`level_2`"
+                    },
+                    {
+                      "name": "level_3",
+                      "expression": "`level_3`"
+                    },
+                    {
+                      "name": "level_4",
+                      "expression": "`level_4`"
+                    },
+                    {
+                      "name": "level_5",
+                      "expression": "`level_5`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Downstream Column Flow (Table)",
+                "showTitle": true
+              },
+              "rowsPerPage": 25,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "selected_column",
+                    "displayName": "Selected Column"
+                  },
+                  {
+                    "fieldName": "level_1",
+                    "displayName": "→ Level 1"
+                  },
+                  {
+                    "fieldName": "level_2",
+                    "displayName": "→ Level 2"
+                  },
+                  {
+                    "fieldName": "level_3",
+                    "displayName": "→ Level 3"
+                  },
+                  {
+                    "fieldName": "level_4",
+                    "displayName": "→ Level 4"
+                  },
+                  {
+                    "fieldName": "level_5",
+                    "displayName": "→ Level 5"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 18,
+            "width": 12,
+            "height": 5
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "d00f64f4",
+      "displayName": "Global Filters",
+      "layout": [
+        {
+          "widget": {
+            "name": "global_catalog",
+            "queries": [
+              {
+                "name": "dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ea7af32c2f5dde44d17_catalog_name",
+                "query": {
+                  "datasetName": "526dbf18",
+                  "fields": [
+                    {
+                      "name": "catalog_name",
+                      "expression": "`catalog_name`"
+                    },
+                    {
+                      "name": "catalog_name_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271eae966044776f1d1055_catalog",
+                "query": {
+                  "datasetName": "d13d271d",
+                  "parameters": [
+                    {
+                      "name": "catalog",
+                      "keyword": "catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271eb48aa6774e5ade5a3e_catalog",
+                "query": {
+                  "datasetName": "bb9985c8",
+                  "parameters": [
+                    {
+                      "name": "catalog",
+                      "keyword": "catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271e77b1cde5deb005c065_catalog",
+                "query": {
+                  "datasetName": "8130b719",
+                  "parameters": [
+                    {
+                      "name": "catalog",
+                      "keyword": "catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ea08bf5a5ddd259cc5c_catalog",
+                "query": {
+                  "datasetName": "18c753db",
+                  "parameters": [
+                    {
+                      "name": "catalog",
+                      "keyword": "catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ec0bceb4e880ef8843c_catalog",
+                "query": {
+                  "datasetName": "af518e46",
+                  "parameters": [
+                    {
+                      "name": "catalog",
+                      "keyword": "catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ed28964a92c59a35416_catalog",
+                "query": {
+                  "datasetName": "791afe56",
+                  "parameters": [
+                    {
+                      "name": "catalog",
+                      "keyword": "catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ec6b1a3aac601f7cde7_catalog",
+                "query": {
+                  "datasetName": "bed02bd2",
+                  "parameters": [
+                    {
+                      "name": "catalog",
+                      "keyword": "catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ecc97475f76e4028c5a_catalog",
+                "query": {
+                  "datasetName": "7f35a271",
+                  "parameters": [
+                    {
+                      "name": "catalog",
+                      "keyword": "catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ee382da7f68834e0e14_catalog",
+                "query": {
+                  "datasetName": "2b55c299",
+                  "parameters": [
+                    {
+                      "name": "catalog",
+                      "keyword": "catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271eeabcf140ed7f9e559d_catalog",
+                "query": {
+                  "datasetName": "0436c0e4",
+                  "parameters": [
+                    {
+                      "name": "catalog",
+                      "keyword": "catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f139b3912a1a938ae8f98148a83d31_catalog",
+                "query": {
+                  "datasetName": "ds_flow_table",
+                  "parameters": [
+                    {
+                      "name": "catalog",
+                      "keyword": "catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f139b41923145095505ff32ce6bde1_catalog",
+                "query": {
+                  "datasetName": "us_flow_table",
+                  "parameters": [
+                    {
+                      "name": "catalog",
+                      "keyword": "catalog"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Catalog",
+                "showTitle": true
+              },
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "catalog_name",
+                    "queryName": "dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ea7af32c2f5dde44d17_catalog_name"
+                  },
+                  {
+                    "parameterName": "catalog",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271eae966044776f1d1055_catalog"
+                  },
+                  {
+                    "parameterName": "catalog",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271eb48aa6774e5ade5a3e_catalog"
+                  },
+                  {
+                    "parameterName": "catalog",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271e77b1cde5deb005c065_catalog"
+                  },
+                  {
+                    "parameterName": "catalog",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ea08bf5a5ddd259cc5c_catalog"
+                  },
+                  {
+                    "parameterName": "catalog",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ec0bceb4e880ef8843c_catalog"
+                  },
+                  {
+                    "parameterName": "catalog",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ed28964a92c59a35416_catalog"
+                  },
+                  {
+                    "parameterName": "catalog",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ec6b1a3aac601f7cde7_catalog"
+                  },
+                  {
+                    "parameterName": "catalog",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ecc97475f76e4028c5a_catalog"
+                  },
+                  {
+                    "parameterName": "catalog",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ee382da7f68834e0e14_catalog"
+                  },
+                  {
+                    "parameterName": "catalog",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271eeabcf140ed7f9e559d_catalog"
+                  },
+                  {
+                    "parameterName": "catalog",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f139b3912a1a938ae8f98148a83d31_catalog"
+                  },
+                  {
+                    "parameterName": "catalog",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f139b41923145095505ff32ce6bde1_catalog"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "global_schema",
+            "queries": [
+              {
+                "name": "dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271eae966044776f1d1055_schema_name",
+                "query": {
+                  "datasetName": "d13d271d",
+                  "fields": [
+                    {
+                      "name": "schema_name",
+                      "expression": "`schema_name`"
+                    },
+                    {
+                      "name": "schema_name_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271eb48aa6774e5ade5a3e_schema",
+                "query": {
+                  "datasetName": "bb9985c8",
+                  "parameters": [
+                    {
+                      "name": "schema",
+                      "keyword": "schema"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271e77b1cde5deb005c065_schema",
+                "query": {
+                  "datasetName": "8130b719",
+                  "parameters": [
+                    {
+                      "name": "schema",
+                      "keyword": "schema"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ea08bf5a5ddd259cc5c_schema",
+                "query": {
+                  "datasetName": "18c753db",
+                  "parameters": [
+                    {
+                      "name": "schema",
+                      "keyword": "schema"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ec0bceb4e880ef8843c_schema",
+                "query": {
+                  "datasetName": "af518e46",
+                  "parameters": [
+                    {
+                      "name": "schema",
+                      "keyword": "schema"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ed28964a92c59a35416_schema",
+                "query": {
+                  "datasetName": "791afe56",
+                  "parameters": [
+                    {
+                      "name": "schema",
+                      "keyword": "schema"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ec6b1a3aac601f7cde7_schema",
+                "query": {
+                  "datasetName": "bed02bd2",
+                  "parameters": [
+                    {
+                      "name": "schema",
+                      "keyword": "schema"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ecc97475f76e4028c5a_schema",
+                "query": {
+                  "datasetName": "7f35a271",
+                  "parameters": [
+                    {
+                      "name": "schema",
+                      "keyword": "schema"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ee382da7f68834e0e14_schema",
+                "query": {
+                  "datasetName": "2b55c299",
+                  "parameters": [
+                    {
+                      "name": "schema",
+                      "keyword": "schema"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271eeabcf140ed7f9e559d_schema",
+                "query": {
+                  "datasetName": "0436c0e4",
+                  "parameters": [
+                    {
+                      "name": "schema",
+                      "keyword": "schema"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f139b3912a1a938ae8f98148a83d31_schema",
+                "query": {
+                  "datasetName": "ds_flow_table",
+                  "parameters": [
+                    {
+                      "name": "schema",
+                      "keyword": "schema"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f139b41923145095505ff32ce6bde1_schema",
+                "query": {
+                  "datasetName": "us_flow_table",
+                  "parameters": [
+                    {
+                      "name": "schema",
+                      "keyword": "schema"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Schema",
+                "showTitle": true
+              },
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "schema_name",
+                    "queryName": "dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271eae966044776f1d1055_schema_name"
+                  },
+                  {
+                    "parameterName": "schema",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271eb48aa6774e5ade5a3e_schema"
+                  },
+                  {
+                    "parameterName": "schema",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271e77b1cde5deb005c065_schema"
+                  },
+                  {
+                    "parameterName": "schema",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ea08bf5a5ddd259cc5c_schema"
+                  },
+                  {
+                    "parameterName": "schema",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ec0bceb4e880ef8843c_schema"
+                  },
+                  {
+                    "parameterName": "schema",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ed28964a92c59a35416_schema"
+                  },
+                  {
+                    "parameterName": "schema",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ec6b1a3aac601f7cde7_schema"
+                  },
+                  {
+                    "parameterName": "schema",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ecc97475f76e4028c5a_schema"
+                  },
+                  {
+                    "parameterName": "schema",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ee382da7f68834e0e14_schema"
+                  },
+                  {
+                    "parameterName": "schema",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271eeabcf140ed7f9e559d_schema"
+                  },
+                  {
+                    "parameterName": "schema",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f139b3912a1a938ae8f98148a83d31_schema"
+                  },
+                  {
+                    "parameterName": "schema",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f139b41923145095505ff32ce6bde1_schema"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 1,
+            "y": 0,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "global_table",
+            "queries": [
+              {
+                "name": "dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271eb48aa6774e5ade5a3e_table_name",
+                "query": {
+                  "datasetName": "bb9985c8",
+                  "fields": [
+                    {
+                      "name": "table_name",
+                      "expression": "`table_name`"
+                    },
+                    {
+                      "name": "table_name_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271e77b1cde5deb005c065_table_name",
+                "query": {
+                  "datasetName": "8130b719",
+                  "parameters": [
+                    {
+                      "name": "table_name",
+                      "keyword": "table_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ea08bf5a5ddd259cc5c_table_name",
+                "query": {
+                  "datasetName": "18c753db",
+                  "parameters": [
+                    {
+                      "name": "table_name",
+                      "keyword": "table_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ec0bceb4e880ef8843c_table_name",
+                "query": {
+                  "datasetName": "af518e46",
+                  "parameters": [
+                    {
+                      "name": "table_name",
+                      "keyword": "table_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ed28964a92c59a35416_table_name",
+                "query": {
+                  "datasetName": "791afe56",
+                  "parameters": [
+                    {
+                      "name": "table_name",
+                      "keyword": "table_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ec6b1a3aac601f7cde7_table_name",
+                "query": {
+                  "datasetName": "bed02bd2",
+                  "parameters": [
+                    {
+                      "name": "table_name",
+                      "keyword": "table_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ecc97475f76e4028c5a_table_name",
+                "query": {
+                  "datasetName": "7f35a271",
+                  "parameters": [
+                    {
+                      "name": "table_name",
+                      "keyword": "table_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ee382da7f68834e0e14_table_name",
+                "query": {
+                  "datasetName": "2b55c299",
+                  "parameters": [
+                    {
+                      "name": "table_name",
+                      "keyword": "table_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271eeabcf140ed7f9e559d_table_name",
+                "query": {
+                  "datasetName": "0436c0e4",
+                  "parameters": [
+                    {
+                      "name": "table_name",
+                      "keyword": "table_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f139b3912a1a938ae8f98148a83d31_table_name",
+                "query": {
+                  "datasetName": "ds_flow_table",
+                  "parameters": [
+                    {
+                      "name": "table_name",
+                      "keyword": "table_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f139b41923145095505ff32ce6bde1_table_name",
+                "query": {
+                  "datasetName": "us_flow_table",
+                  "parameters": [
+                    {
+                      "name": "table_name",
+                      "keyword": "table_name"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Table",
+                "showTitle": true
+              },
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "table_name",
+                    "queryName": "dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271eb48aa6774e5ade5a3e_table_name"
+                  },
+                  {
+                    "parameterName": "table_name",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271e77b1cde5deb005c065_table_name"
+                  },
+                  {
+                    "parameterName": "table_name",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ea08bf5a5ddd259cc5c_table_name"
+                  },
+                  {
+                    "parameterName": "table_name",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ec0bceb4e880ef8843c_table_name"
+                  },
+                  {
+                    "parameterName": "table_name",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ed28964a92c59a35416_table_name"
+                  },
+                  {
+                    "parameterName": "table_name",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ec6b1a3aac601f7cde7_table_name"
+                  },
+                  {
+                    "parameterName": "table_name",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ecc97475f76e4028c5a_table_name"
+                  },
+                  {
+                    "parameterName": "table_name",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271ee382da7f68834e0e14_table_name"
+                  },
+                  {
+                    "parameterName": "table_name",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f1276b94271eeabcf140ed7f9e559d_table_name"
+                  },
+                  {
+                    "parameterName": "table_name",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f139b3912a1a938ae8f98148a83d31_table_name"
+                  },
+                  {
+                    "parameterName": "table_name",
+                    "queryName": "parameter_dashboards/01f1276b94271c0b8efdc7eb6e4f8dc1/datasets/01f139b41923145095505ff32ce6bde1_table_name"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 0,
+            "width": 1,
+            "height": 2
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    },
+    "applyModeEnabled": false
+  }
+}

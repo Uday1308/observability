@@ -1,0 +1,3042 @@
+{
+  "datasets": [
+    {
+      "name": "endpoint_requests",
+      "displayName": "Endpoint Requests",
+      "queryLines": [
+        "WITH workspace_map AS (\n",
+        "  SELECT DISTINCT\n",
+        "    u.usage_metadata.endpoint_name AS endpoint_name,\n",
+        "    w.workspace_name\n",
+        "  FROM\n",
+        "    system.billing.usage u\n",
+        "      LEFT JOIN system.access.workspaces_latest w\n",
+        "        ON u.workspace_id = w.workspace_id\n",
+        "  WHERE\n",
+        "    u.billing_origin_product = 'MODEL_SERVING'\n",
+        "    AND u.record_type = 'ORIGINAL'\n",
+        "    AND u.usage_metadata.endpoint_name IS NOT NULL\n",
+        ")\n",
+        "SELECT\n",
+        "  eu.request_time,\n",
+        "  eu.status_code,\n",
+        "  eu.input_token_count,\n",
+        "  eu.output_token_count,\n",
+        "  eu.requester,\n",
+        "  eu.request_streaming,\n",
+        "  se.endpoint_name,\n",
+        "  se.entity_type,\n",
+        "  se.entity_name,\n",
+        "  se.served_entity_name,\n",
+        "  se.created_by,\n",
+        "  se.task,\n",
+        "  se.endpoint_delete_time,\n",
+        "  wm.workspace_name\n",
+        "FROM\n",
+        "  system.serving.endpoint_usage eu\n",
+        "    JOIN system.serving.served_entities se\n",
+        "      ON eu.served_entity_id = se.served_entity_id\n",
+        "    LEFT JOIN workspace_map wm\n",
+        "      ON se.endpoint_name = wm.endpoint_name"
+      ],
+      "columns": [
+        {
+          "displayName": "Request Date",
+          "description": "Date of request for daily grouping",
+          "expression": "CAST(request_time AS DATE)"
+        },
+        {
+          "displayName": "Request Week",
+          "description": "Weekly grouping of requests",
+          "expression": "DATE_TRUNC('WEEK', request_time)"
+        },
+        {
+          "displayName": "Total Tokens",
+          "description": "Total tokens processed",
+          "expression": "SUM(input_token_count) + SUM(output_token_count)"
+        },
+        {
+          "displayName": "Success Rate %",
+          "description": "Percentage of successful requests (HTTP 200)",
+          "expression": "ROUND(COUNT_IF(status_code = 200) * 100.0 / COUNT(*), 1)"
+        },
+        {
+          "displayName": "Is Deleted",
+          "description": "Whether the endpoint has been deleted",
+          "expression": "CASE WHEN endpoint_delete_time IS NOT NULL THEN 'Deleted' ELSE 'Active' END"
+        },
+        {
+          "displayName": "Avg Requests per User",
+          "description": "Average number of requests per unique requester",
+          "expression": "TRY_DIVIDE(COUNT(*), COUNT(DISTINCT requester))"
+        },
+        {
+          "displayName": "Avg Tokens per User",
+          "description": "Average total tokens consumed per unique requester",
+          "expression": "TRY_DIVIDE(SUM(input_token_count) + SUM(output_token_count), COUNT(DISTINCT requester))"
+        }
+      ]
+    },
+    {
+      "name": "app_summary",
+      "displayName": "App Activity Summary",
+      "queryLines": [
+        "SELECT\n",
+        "  usage_metadata.app_name AS app_name,\n",
+        "  ANY_VALUE(identity_metadata.created_by) AS owner,\n",
+        "  MAX(usage_date) AS last_active_date,\n",
+        "  COUNT(DISTINCT usage_date) AS active_days,\n",
+        "  SUM(usage_quantity) AS total_dbus,\n",
+        "  MIN(usage_date) AS first_active_date\n",
+        "FROM\n",
+        "  system.billing.usage\n",
+        "WHERE\n",
+        "  billing_origin_product = 'APPS'\n",
+        "  AND record_type = 'ORIGINAL'\n",
+        "GROUP BY\n",
+        "  usage_metadata.app_name"
+      ],
+      "columns": [
+        {
+          "displayName": "Is Idle",
+          "description": "Whether app has had no usage in last 7 days",
+          "expression": "CASE WHEN DATEDIFF(CURRENT_DATE(), last_active_date) > 7 THEN 'Idle' ELSE 'Active' END"
+        },
+        {
+          "displayName": "Uptime %",
+          "description": "Percentage of days active between first and last usage",
+          "expression": "ROUND(active_days * 100.0 / NULLIF(DATEDIFF(last_active_date, first_active_date) + 1, 0), 1)"
+        }
+      ]
+    },
+    {
+      "name": "app_audit",
+      "displayName": "App User Activity",
+      "queryLines": [
+        "SELECT\n",
+        "  user_identity.email AS user_email,\n",
+        "  action_name,\n",
+        "  request_params['app_name'] AS app_name,\n",
+        "  event_date,\n",
+        "  event_time,\n",
+        "  response.status_code AS status_code\n",
+        "FROM\n",
+        "  system.access.audit\n",
+        "WHERE\n",
+        "  service_name = 'apps'\n",
+        "  AND user_identity.email IS NOT NULL"
+      ],
+      "columns": [
+        {
+          "displayName": "Event Week",
+          "description": "Weekly grouping of audit events",
+          "expression": "DATE_TRUNC('WEEK', event_date)"
+        },
+        {
+          "displayName": "Action Category",
+          "description": "Grouped action categories for cleaner visualization",
+          "expression": "CASE WHEN action_name IN ('deployApp', 'createUpdate') THEN 'Deploy' WHEN action_name IN ('createApp', 'installTemplateApp') THEN 'Create' WHEN action_name IN ('startApp', 'stopApp') THEN 'Start/Stop' WHEN action_name = 'deleteApp' THEN 'Delete' WHEN action_name IN ('updateApp', 'changeAppsAcl') THEN 'Configure' ELSE 'Other' END"
+        }
+      ]
+    },
+    {
+      "name": "all_endpoints",
+      "displayName": "All Serving Endpoints",
+      "queryLines": [
+        "WITH workspace_map AS (\n",
+        "  SELECT DISTINCT\n",
+        "    u.usage_metadata.endpoint_name AS endpoint_name,\n",
+        "    w.workspace_name\n",
+        "  FROM\n",
+        "    system.billing.usage u\n",
+        "      LEFT JOIN system.access.workspaces_latest w\n",
+        "        ON u.workspace_id = w.workspace_id\n",
+        "  WHERE\n",
+        "    u.billing_origin_product = 'MODEL_SERVING'\n",
+        "    AND u.record_type = 'ORIGINAL'\n",
+        "    AND u.usage_metadata.endpoint_name IS NOT NULL\n",
+        ")\n",
+        "SELECT DISTINCT\n",
+        "  se.endpoint_name,\n",
+        "  se.endpoint_id,\n",
+        "  CASE\n",
+        "    WHEN se.endpoint_delete_time IS NOT NULL THEN 'Deleted'\n",
+        "    ELSE 'Active'\n",
+        "  END AS status,\n",
+        "  wm.workspace_name\n",
+        "FROM\n",
+        "  system.serving.served_entities se\n",
+        "    LEFT JOIN workspace_map wm\n",
+        "      ON se.endpoint_name = wm.endpoint_name"
+      ]
+    },
+    {
+      "name": "ml_billing",
+      "displayName": "ML Serving Billing",
+      "queryLines": [
+        "SELECT\n",
+        "  u.usage_date,\n",
+        "  u.sku_name,\n",
+        "  u.usage_quantity,\n",
+        "  u.billing_origin_product,\n",
+        "  u.usage_type,\n",
+        "  u.usage_metadata.endpoint_name AS endpoint_name,\n",
+        "  u.usage_metadata.endpoint_id AS endpoint_id,\n",
+        "  u.identity_metadata.run_as AS run_as_user,\n",
+        "  u.workspace_id,\n",
+        "  w.workspace_name,\n",
+        "  p.pricing.default AS list_price,\n",
+        "  u.usage_quantity * COALESCE(p.pricing.default, 0) AS estimated_cost\n",
+        "FROM\n",
+        "  system.billing.usage u\n",
+        "    LEFT JOIN system.billing.list_prices p\n",
+        "      ON u.cloud = p.cloud\n",
+        "      AND u.sku_name = p.sku_name\n",
+        "      AND u.usage_start_time >= p.price_start_time\n",
+        "      AND (\n",
+        "        u.usage_start_time < p.price_end_time\n",
+        "        OR p.price_end_time IS NULL\n",
+        "      )\n",
+        "    LEFT JOIN system.access.workspaces_latest w\n",
+        "      ON u.workspace_id = w.workspace_id\n",
+        "WHERE\n",
+        "  u.record_type = 'ORIGINAL'\n",
+        "  AND u.billing_origin_product = 'MODEL_SERVING'"
+      ],
+      "columns": [
+        {
+          "displayName": "Component Name",
+          "description": "Endpoint name for display",
+          "expression": "COALESCE(`endpoint_name`, 'Unknown')"
+        },
+        {
+          "displayName": "Usage Month",
+          "description": "Monthly grouping",
+          "expression": "DATE_TRUNC('MONTH', `usage_date`)"
+        },
+        {
+          "displayName": "Usage Week",
+          "description": "Weekly grouping",
+          "expression": "DATE_TRUNC('WEEK', `usage_date`)"
+        },
+        {
+          "displayName": "Avg Daily Cost",
+          "description": "Average daily cost per endpoint",
+          "expression": "TRY_DIVIDE(SUM(`estimated_cost`), COUNT(DISTINCT `usage_date`))"
+        },
+        {
+          "displayName": "Cost per DBU",
+          "description": "Average cost per DBU consumed",
+          "expression": "TRY_DIVIDE(SUM(`estimated_cost`), SUM(`usage_quantity`))"
+        }
+      ]
+    },
+    {
+      "name": "apps_billing",
+      "displayName": "Apps Billing",
+      "queryLines": [
+        "SELECT\n",
+        "  u.usage_date,\n",
+        "  u.sku_name,\n",
+        "  u.usage_quantity,\n",
+        "  u.billing_origin_product,\n",
+        "  u.usage_type,\n",
+        "  u.usage_metadata.app_name AS app_name,\n",
+        "  u.usage_metadata.app_id AS app_id,\n",
+        "  u.identity_metadata.created_by AS created_by,\n",
+        "  p.pricing.default AS list_price,\n",
+        "  u.usage_quantity * COALESCE(p.pricing.default, 0) AS estimated_cost\n",
+        "FROM\n",
+        "  system.billing.usage u\n",
+        "    LEFT JOIN system.billing.list_prices p\n",
+        "      ON u.cloud = p.cloud\n",
+        "      AND u.sku_name = p.sku_name\n",
+        "      AND u.usage_start_time >= p.price_start_time\n",
+        "      AND (\n",
+        "        u.usage_start_time < p.price_end_time\n",
+        "        OR p.price_end_time IS NULL\n",
+        "      )\n",
+        "WHERE\n",
+        "  u.record_type = 'ORIGINAL'\n",
+        "  AND u.billing_origin_product = 'APPS'"
+      ],
+      "columns": [
+        {
+          "displayName": "Component Name",
+          "description": "App name for display",
+          "expression": "COALESCE(`app_name`, 'Unknown')"
+        },
+        {
+          "displayName": "Usage Month",
+          "description": "Monthly grouping",
+          "expression": "DATE_TRUNC('MONTH', `usage_date`)"
+        },
+        {
+          "displayName": "Usage Week",
+          "description": "Weekly grouping",
+          "expression": "DATE_TRUNC('WEEK', `usage_date`)"
+        },
+        {
+          "displayName": "Avg Daily Cost",
+          "description": "Average daily cost",
+          "expression": "TRY_DIVIDE(SUM(`estimated_cost`), COUNT(DISTINCT `usage_date`))"
+        },
+        {
+          "displayName": "Cost per DBU",
+          "description": "Average cost per DBU",
+          "expression": "TRY_DIVIDE(SUM(`estimated_cost`), SUM(`usage_quantity`))"
+        },
+        {
+          "displayName": "Avg DBU per Active Day",
+          "description": "Average DBU consumption per active day",
+          "expression": "TRY_DIVIDE(SUM(`usage_quantity`), COUNT(DISTINCT `usage_date`))"
+        },
+        {
+          "displayName": "Cost per App",
+          "description": "Average cost per distinct app",
+          "expression": "TRY_DIVIDE(SUM(`estimated_cost`), COUNT(DISTINCT `app_name`))"
+        },
+        {
+          "displayName": "App Uptime %",
+          "description": "Percentage of days with usage out of total period",
+          "expression": "ROUND(COUNT(DISTINCT `usage_date`) * 100.0 / NULLIF(DATEDIFF(MAX(`usage_date`), MIN(`usage_date`)) + 1, 0), 1)"
+        }
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "ml_serving",
+      "displayName": "ML Model Serving",
+      "layout": [
+        {
+          "widget": {
+            "name": "header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## ML Model Serving\n",
+                "Monitor serving endpoint usage, request health, token consumption, and cost to identify underutilized or idle endpoints."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "endpoint_filter",
+            "queries": [
+              {
+                "name": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f13c9a81d413548b79499033fd0c85_endpoint_name",
+                "query": {
+                  "datasetName": "ml_billing",
+                  "fields": [
+                    {
+                      "name": "endpoint_name",
+                      "expression": "`endpoint_name`"
+                    },
+                    {
+                      "name": "endpoint_name_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f13401c7d314379d92dd7c8ec7b200_endpoint_name",
+                "query": {
+                  "datasetName": "endpoint_requests",
+                  "fields": [
+                    {
+                      "name": "endpoint_name",
+                      "expression": "`endpoint_name`"
+                    },
+                    {
+                      "name": "endpoint_name_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Select Endpoint",
+                "showTitle": true
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "endpoint_name",
+                    "queryName": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f13c9a81d413548b79499033fd0c85_endpoint_name"
+                  },
+                  {
+                    "fieldName": "endpoint_name",
+                    "queryName": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f13401c7d314379d92dd7c8ec7b200_endpoint_name"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 1,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_endpoints",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "endpoint_requests",
+                  "fields": [
+                    {
+                      "name": "countdistinct(endpoint_name)",
+                      "expression": "COUNT(DISTINCT `endpoint_name`)"
+                    }
+                  ],
+                  "filters": [
+                    {
+                      "expression": "`Is Deleted` IN ('Active')"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Active Endpoints",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "countdistinct(endpoint_name)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "none"
+                  },
+                  "displayName": "Active Endpoints"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_requests",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "endpoint_requests",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Total Requests",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "compact"
+                  },
+                  "displayName": "Requests"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 7,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_success",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "endpoint_requests",
+                  "fields": [
+                    {
+                      "name": "measure(Success Rate %)",
+                      "expression": "MEASURE(`Success Rate %`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Overall Success Rate",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Success Rate %)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    },
+                    "abbreviation": "none"
+                  },
+                  "displayName": "Success %"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "request_trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "endpoint_requests",
+                  "fields": [
+                    {
+                      "name": "endpoint_name",
+                      "expression": "`endpoint_name`"
+                    },
+                    {
+                      "name": "Request Week",
+                      "expression": "`Request Week`"
+                    },
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Weekly Request Volume by Endpoint",
+                "showTitle": true
+              },
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "Request Week",
+                  "displayName": "Week",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "count(*)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "compact"
+                  },
+                  "displayName": "Requests",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "endpoint_name",
+                  "legend": {
+                    "position": "bottom"
+                  },
+                  "displayName": "Endpoint",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 7,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "endpoint_health_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "endpoint_requests",
+                  "fields": [
+                    {
+                      "name": "Is Deleted",
+                      "expression": "`Is Deleted`"
+                    },
+                    {
+                      "name": "endpoint_name",
+                      "expression": "`endpoint_name`"
+                    },
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Requests by Endpoint Status",
+                "showTitle": true
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "endpoint_name",
+                  "displayName": "Endpoint",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "count(*)",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact"
+                  },
+                  "displayName": "Requests",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "Is Deleted",
+                  "legend": {
+                    "position": "bottom"
+                  },
+                  "displayName": "Status",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 7,
+            "y": 5,
+            "width": 5,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_unique_requesters",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "endpoint_requests",
+                  "fields": [
+                    {
+                      "name": "countdistinct(requester)",
+                      "expression": "COUNT(DISTINCT `requester`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Unique Requesters",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "countdistinct(requester)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "none"
+                  },
+                  "displayName": "Unique Requesters"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 25,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "top_requesters_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "endpoint_requests",
+                  "fields": [
+                    {
+                      "name": "requester",
+                      "expression": "`requester`"
+                    },
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Top Requesters by Volume",
+                "showTitle": true
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "requester",
+                  "displayName": "Requester",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "count(*)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "compact"
+                  },
+                  "displayName": "Requests",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "requester",
+                  "legend": {
+                    "hide": true
+                  },
+                  "displayName": "Requester",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 28,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "user_scorecard",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "endpoint_requests",
+                  "fields": [
+                    {
+                      "name": "requester",
+                      "expression": "`requester`"
+                    },
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    },
+                    {
+                      "name": "measure(Success Rate %)",
+                      "expression": "MEASURE(`Success Rate %`)"
+                    },
+                    {
+                      "name": "sum(input_token_count)",
+                      "expression": "SUM(`input_token_count`)"
+                    },
+                    {
+                      "name": "sum(output_token_count)",
+                      "expression": "SUM(`output_token_count`)"
+                    },
+                    {
+                      "name": "countdistinct(endpoint_name)",
+                      "expression": "COUNT(DISTINCT `endpoint_name`)"
+                    }
+                  ],
+                  "cubeGroupingSets": {
+                    "sets": [
+                      {
+                        "fieldNames": [
+                          "requester"
+                        ]
+                      },
+                      {}
+                    ]
+                  },
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "ASC",
+                      "expression": "`requester`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "User Activity Scorecard",
+                "showTitle": true
+              },
+              "widgetType": "pivot",
+              "encodings": {
+                "rows": [
+                  {
+                    "fieldName": "requester",
+                    "displayTotal": true,
+                    "displayName": "Requester"
+                  }
+                ],
+                "cell": {
+                  "type": "multi-cell",
+                  "fields": [
+                    {
+                      "fieldName": "count(*)",
+                      "cellType": "text",
+                      "displayName": "Total Requests"
+                    },
+                    {
+                      "fieldName": "measure(Success Rate %)",
+                      "cellType": "text",
+                      "displayName": "Success Rate %"
+                    },
+                    {
+                      "fieldName": "sum(input_token_count)",
+                      "cellType": "text",
+                      "displayName": "Input Tokens"
+                    },
+                    {
+                      "fieldName": "sum(output_token_count)",
+                      "cellType": "text",
+                      "displayName": "Output Tokens"
+                    },
+                    {
+                      "fieldName": "countdistinct(endpoint_name)",
+                      "cellType": "text",
+                      "displayName": "Endpoints Used"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 34,
+            "width": 12,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "user_filter",
+            "queries": [
+              {
+                "name": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f13401c7d314379d92dd7c8ec7b200_requester",
+                "query": {
+                  "datasetName": "endpoint_requests",
+                  "fields": [
+                    {
+                      "name": "requester",
+                      "expression": "`requester`"
+                    },
+                    {
+                      "name": "requester_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Select Requester",
+                "showTitle": true
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "requester",
+                    "queryName": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f13401c7d314379d92dd7c8ec7b200_requester"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 24,
+            "width": 4,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "ml_user_section_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## User-Level Monitoring\n",
+                "Track who is consuming serving endpoints — request volume, token usage, and activity per requester."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 24,
+            "width": 8,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "user_total_requests",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "endpoint_requests",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Total User Requests",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "compact"
+                  },
+                  "displayName": "Total Requests"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 25,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "user_avg_tokens",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "endpoint_requests",
+                  "fields": [
+                    {
+                      "name": "measure(Avg Tokens per User)",
+                      "expression": "MEASURE(`Avg Tokens per User`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Avg Tokens per User",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Avg Tokens per User)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "compact"
+                  },
+                  "displayName": "Avg Tokens/User"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 25,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_total_endpoints",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "all_endpoints",
+                  "fields": [
+                    {
+                      "name": "countdistinct(endpoint_name)",
+                      "expression": "COUNT(DISTINCT `endpoint_name`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Total Endpoints",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "countdistinct(endpoint_name)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "none"
+                  },
+                  "displayName": "Total Endpoints"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "ml_kpi_cost",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ml_billing",
+                  "fields": [
+                    {
+                      "name": "sum(estimated_cost)",
+                      "expression": "SUM(`estimated_cost`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Total Serving Cost",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(estimated_cost)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "compact"
+                  },
+                  "displayName": "Total Cost"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "ml_cost_ranking",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ml_billing",
+                  "fields": [
+                    {
+                      "name": "endpoint_name",
+                      "expression": "`endpoint_name`"
+                    },
+                    {
+                      "name": "sum(estimated_cost)",
+                      "expression": "SUM(`estimated_cost`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Endpoint Cost Ranking",
+                "showTitle": true
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "endpoint_name",
+                  "displayName": "Endpoint",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(estimated_cost)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "compact"
+                  },
+                  "displayName": "Estimated Cost",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "endpoint_name",
+                  "legend": {
+                    "hide": true
+                  },
+                  "displayName": "Endpoint",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "ml_monthly_cost",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ml_billing",
+                  "fields": [
+                    {
+                      "name": "endpoint_name",
+                      "expression": "`endpoint_name`"
+                    },
+                    {
+                      "name": "Usage Month",
+                      "expression": "`Usage Month`"
+                    },
+                    {
+                      "name": "sum(estimated_cost)",
+                      "expression": "SUM(`estimated_cost`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Monthly Serving Cost Trend",
+                "showTitle": true
+              },
+              "mark": {
+                "layout": "stack"
+              },
+              "widgetType": "area",
+              "encodings": {
+                "x": {
+                  "fieldName": "Usage Month",
+                  "displayName": "Month",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(estimated_cost)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "compact"
+                  },
+                  "displayName": "Total Cost",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "endpoint_name",
+                  "legend": {
+                    "position": "bottom"
+                  },
+                  "displayName": "Endpoint",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 11,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "ml_date_filter",
+            "queries": [
+              {
+                "name": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f13c9a81d413548b79499033fd0c85_usage_date",
+                "query": {
+                  "datasetName": "ml_billing",
+                  "fields": [
+                    {
+                      "name": "usage_date",
+                      "expression": "`usage_date`"
+                    },
+                    {
+                      "name": "usage_date_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f13401c7d314379d92dd7c8ec7b200_request_time",
+                "query": {
+                  "datasetName": "endpoint_requests",
+                  "fields": [
+                    {
+                      "name": "request_time",
+                      "expression": "`request_time`"
+                    },
+                    {
+                      "name": "request_time_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Date Range",
+                "showTitle": true
+              },
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "usage_date",
+                    "queryName": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f13c9a81d413548b79499033fd0c85_usage_date"
+                  },
+                  {
+                    "fieldName": "request_time",
+                    "queryName": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f13401c7d314379d92dd7c8ec7b200_request_time"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "ml_endpoint_scorecard",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "endpoint_requests",
+                  "fields": [
+                    {
+                      "name": "endpoint_name",
+                      "expression": "`endpoint_name`"
+                    },
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    },
+                    {
+                      "name": "measure(Success Rate %)",
+                      "expression": "MEASURE(`Success Rate %`)"
+                    },
+                    {
+                      "name": "countdistinct(Request Date)",
+                      "expression": "COUNT(DISTINCT `Request Date`)"
+                    },
+                    {
+                      "name": "measure(Total Tokens)",
+                      "expression": "MEASURE(`Total Tokens`)"
+                    },
+                    {
+                      "name": "countdistinct(requester)",
+                      "expression": "COUNT(DISTINCT `requester`)"
+                    }
+                  ],
+                  "cubeGroupingSets": {
+                    "sets": [
+                      {
+                        "fieldNames": [
+                          "endpoint_name"
+                        ]
+                      },
+                      {}
+                    ]
+                  },
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "ASC",
+                      "expression": "`endpoint_name`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Endpoint Health Scorecard",
+                "showTitle": true
+              },
+              "widgetType": "pivot",
+              "encodings": {
+                "rows": [
+                  {
+                    "fieldName": "endpoint_name",
+                    "displayTotal": true,
+                    "displayName": "Endpoint"
+                  }
+                ],
+                "cell": {
+                  "type": "multi-cell",
+                  "fields": [
+                    {
+                      "fieldName": "count(*)",
+                      "cellType": "text",
+                      "displayName": "Total Requests"
+                    },
+                    {
+                      "fieldName": "measure(Success Rate %)",
+                      "cellType": "text",
+                      "displayName": "Success Rate %"
+                    },
+                    {
+                      "fieldName": "countdistinct(Request Date)",
+                      "cellType": "text",
+                      "displayName": "Active Days"
+                    },
+                    {
+                      "fieldName": "measure(Total Tokens)",
+                      "cellType": "text",
+                      "displayName": "Total Tokens"
+                    },
+                    {
+                      "fieldName": "countdistinct(requester)",
+                      "cellType": "text",
+                      "displayName": "Distinct Users"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 17,
+            "width": 12,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "workspace_filter",
+            "queries": [
+              {
+                "name": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f13c9a81d413548b79499033fd0c85_workspace_name",
+                "query": {
+                  "datasetName": "ml_billing",
+                  "fields": [
+                    {
+                      "name": "workspace_name",
+                      "expression": "`workspace_name`"
+                    },
+                    {
+                      "name": "workspace_name_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f13401c7d314379d92dd7c8ec7b200_workspace_name",
+                "query": {
+                  "datasetName": "endpoint_requests",
+                  "fields": [
+                    {
+                      "name": "workspace_name",
+                      "expression": "`workspace_name`"
+                    },
+                    {
+                      "name": "workspace_name_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f139bd83ac1432a591efae94c7f498_workspace_name",
+                "query": {
+                  "datasetName": "all_endpoints",
+                  "fields": [
+                    {
+                      "name": "workspace_name",
+                      "expression": "`workspace_name`"
+                    },
+                    {
+                      "name": "workspace_name_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Select Workspace",
+                "showTitle": true
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "workspace_name",
+                    "queryName": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f13c9a81d413548b79499033fd0c85_workspace_name"
+                  },
+                  {
+                    "fieldName": "workspace_name",
+                    "queryName": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f13401c7d314379d92dd7c8ec7b200_workspace_name"
+                  },
+                  {
+                    "fieldName": "workspace_name",
+                    "queryName": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f139bd83ac1432a591efae94c7f498_workspace_name"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 0,
+            "width": 6,
+            "height": 1
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "apps_monitoring",
+      "displayName": "Databricks Apps",
+      "layout": [
+        {
+          "widget": {
+            "name": "header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Databricks Apps\n",
+                "Monitor app usage, cost, and activity patterns to identify underutilized or idle apps that can be decommissioned."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 4,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "app_filter",
+            "queries": [
+              {
+                "name": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f13c9a86201c4fb36c5029cdd5e1a9_app_name",
+                "query": {
+                  "datasetName": "apps_billing",
+                  "fields": [
+                    {
+                      "name": "app_name",
+                      "expression": "`app_name`"
+                    },
+                    {
+                      "name": "app_name_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Select App",
+                "showTitle": true
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "app_name",
+                    "queryName": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f13c9a86201c4fb36c5029cdd5e1a9_app_name"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 0,
+            "width": 4,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "weekly_trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "apps_billing",
+                  "fields": [
+                    {
+                      "name": "app_name",
+                      "expression": "`app_name`"
+                    },
+                    {
+                      "name": "Usage Week",
+                      "expression": "`Usage Week`"
+                    },
+                    {
+                      "name": "sum(usage_quantity)",
+                      "expression": "SUM(`usage_quantity`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Weekly DBU Consumption by App",
+                "showTitle": true
+              },
+              "mark": {
+                "layout": "stack"
+              },
+              "widgetType": "area",
+              "encodings": {
+                "x": {
+                  "fieldName": "Usage Week",
+                  "displayName": "Week",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(usage_quantity)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "compact"
+                  },
+                  "displayName": "Total DBUs",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "app_name",
+                  "legend": {
+                    "position": "bottom"
+                  },
+                  "displayName": "App",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 7,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "cost_share_pie",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "apps_billing",
+                  "fields": [
+                    {
+                      "name": "sum(estimated_cost)",
+                      "expression": "SUM(`estimated_cost`)"
+                    },
+                    {
+                      "name": "app_name",
+                      "expression": "`app_name`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "App Cost Share",
+                "showTitle": true
+              },
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "sum(estimated_cost)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "compact"
+                  },
+                  "displayName": "Total Cost"
+                },
+                "color": {
+                  "fieldName": "app_name",
+                  "legend": {
+                    "position": "bottom"
+                  },
+                  "displayName": "App",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 7,
+            "y": 4,
+            "width": 5,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_idle_apps",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "app_summary",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "filters": [
+                    {
+                      "expression": "`Is Idle` IN ('Idle')"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Idle Apps (7+ Days)",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "none"
+                  },
+                  "displayName": "Idle Apps"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 1,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_avg_dbu_day",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "app_summary",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "filters": [
+                    {
+                      "expression": "`Is Idle` IN ('Active')"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Active Apps (Last 7 Days)",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "none"
+                  },
+                  "displayName": "Active Apps"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 1,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_cost_per_app",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "apps_billing",
+                  "fields": [
+                    {
+                      "name": "measure(Cost per App)",
+                      "expression": "MEASURE(`Cost per App`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Avg Cost per App",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Cost per App)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "none"
+                  },
+                  "displayName": "Cost/App"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 1,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "activity_heatmap",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "apps_billing",
+                  "fields": [
+                    {
+                      "name": "app_name",
+                      "expression": "`app_name`"
+                    },
+                    {
+                      "name": "Usage Week",
+                      "expression": "`Usage Week`"
+                    },
+                    {
+                      "name": "sum(usage_quantity)",
+                      "expression": "SUM(`usage_quantity`)"
+                    }
+                  ],
+                  "cubeGroupingSets": {
+                    "sets": [
+                      {
+                        "fieldNames": [
+                          "app_name"
+                        ]
+                      },
+                      {
+                        "fieldNames": [
+                          "Usage Week"
+                        ]
+                      }
+                    ]
+                  },
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "ASC",
+                      "expression": "`app_name`"
+                    },
+                    {
+                      "direction": "ASC",
+                      "expression": "`Usage Week`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "App Activity Heatmap",
+                "showTitle": true
+              },
+              "widgetType": "pivot",
+              "encodings": {
+                "rows": [
+                  {
+                    "fieldName": "app_name",
+                    "displayTotal": true,
+                    "displayName": "App"
+                  }
+                ],
+                "columns": [
+                  {
+                    "fieldName": "Usage Week",
+                    "displayTotal": false,
+                    "displayName": "Week"
+                  }
+                ],
+                "cell": {
+                  "type": "multi-cell",
+                  "fields": [
+                    {
+                      "fieldName": "sum(usage_quantity)",
+                      "cellType": "text",
+                      "displayName": "DBUs"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 33,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "uptime_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "app_summary",
+                  "fields": [
+                    {
+                      "name": "Is Idle",
+                      "expression": "`Is Idle`"
+                    },
+                    {
+                      "name": "app_name",
+                      "expression": "`app_name`"
+                    },
+                    {
+                      "name": "avg(Uptime %)",
+                      "expression": "AVG(`Uptime %`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "App Uptime %",
+                "showTitle": true
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "app_name",
+                  "displayName": "App",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "avg(Uptime %)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    },
+                    "abbreviation": "none"
+                  },
+                  "displayName": "Uptime %",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "Is Idle",
+                  "legend": {
+                    "position": "bottom"
+                  },
+                  "displayName": "Status",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Idle",
+                        "color": "#E74C3C"
+                      },
+                      {
+                        "value": "Active",
+                        "color": "#2ECC71"
+                      }
+                    ]
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 20,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "status_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "app_summary",
+                  "fields": [
+                    {
+                      "name": "app_name",
+                      "expression": "`app_name`"
+                    },
+                    {
+                      "name": "owner",
+                      "expression": "`owner`"
+                    },
+                    {
+                      "name": "Is Idle",
+                      "expression": "`Is Idle`"
+                    },
+                    {
+                      "name": "last_active_date",
+                      "expression": "`last_active_date`"
+                    },
+                    {
+                      "name": "active_days",
+                      "expression": "`active_days`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "App Status Indicator",
+                "showTitle": true
+              },
+              "rowsPerPage": 25,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "app_name",
+                    "displayName": "App Name"
+                  },
+                  {
+                    "fieldName": "owner",
+                    "displayName": "Owner"
+                  },
+                  {
+                    "fieldName": "Is Idle",
+                    "displayName": "Status",
+                    "style": {
+                      "type": "basic",
+                      "rules": [
+                        {
+                          "condition": {
+                            "operand": {
+                              "type": "data-value",
+                              "value": "Active"
+                            },
+                            "operator": "="
+                          },
+                          "backgroundColor": "#2ECC71",
+                          "foregroundColor": "#FFFFFF"
+                        },
+                        {
+                          "condition": {
+                            "operand": {
+                              "type": "data-value",
+                              "value": "Idle"
+                            },
+                            "operator": "="
+                          },
+                          "backgroundColor": "#E74C3C",
+                          "foregroundColor": "#FFFFFF"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "fieldName": "last_active_date",
+                    "displayName": "Last Active"
+                  },
+                  {
+                    "fieldName": "active_days",
+                    "displayName": "Active Days"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 16,
+            "width": 12,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "user_filter",
+            "queries": [
+              {
+                "name": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f137e53f4c16528d3c4210bed149ee_user_email",
+                "query": {
+                  "datasetName": "app_audit",
+                  "fields": [
+                    {
+                      "name": "user_email",
+                      "expression": "`user_email`"
+                    },
+                    {
+                      "name": "user_email_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Select User",
+                "showTitle": true
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "user_email",
+                    "queryName": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f137e53f4c16528d3c4210bed149ee_user_email"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 39,
+            "width": 4,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_unique_users",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "app_audit",
+                  "fields": [
+                    {
+                      "name": "countdistinct(user_email)",
+                      "expression": "COUNT(DISTINCT `user_email`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Unique App Managers",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "countdistinct(user_email)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "none"
+                  },
+                  "displayName": "Unique Users"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 40,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_total_actions",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "app_audit",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Total Actions",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "compact"
+                  },
+                  "displayName": "Total Actions"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 40,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_apps_managed",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "app_audit",
+                  "fields": [
+                    {
+                      "name": "countdistinct(app_name)",
+                      "expression": "COUNT(DISTINCT `app_name`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Apps Managed",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "countdistinct(app_name)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "none"
+                  },
+                  "displayName": "Apps Managed"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 40,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "top_users_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "app_audit",
+                  "fields": [
+                    {
+                      "name": "Action Category",
+                      "expression": "`Action Category`"
+                    },
+                    {
+                      "name": "user_email",
+                      "expression": "`user_email`"
+                    },
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Top Users by Activity",
+                "showTitle": true
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "user_email",
+                  "displayName": "User",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "count(*)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "none"
+                  },
+                  "displayName": "Actions",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "Action Category",
+                  "legend": {
+                    "position": "bottom"
+                  },
+                  "displayName": "Action",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 43,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "user_scorecard",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "app_audit",
+                  "fields": [
+                    {
+                      "name": "user_email",
+                      "expression": "`user_email`"
+                    },
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    },
+                    {
+                      "name": "countdistinct(app_name)",
+                      "expression": "COUNT(DISTINCT `app_name`)"
+                    },
+                    {
+                      "name": "max(event_date)",
+                      "expression": "MAX(`event_date`)"
+                    }
+                  ],
+                  "cubeGroupingSets": {
+                    "sets": [
+                      {
+                        "fieldNames": [
+                          "user_email"
+                        ]
+                      },
+                      {}
+                    ]
+                  },
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "ASC",
+                      "expression": "`user_email`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "User Activity Scorecard",
+                "showTitle": true
+              },
+              "widgetType": "pivot",
+              "encodings": {
+                "rows": [
+                  {
+                    "fieldName": "user_email",
+                    "displayTotal": true,
+                    "displayName": "User"
+                  }
+                ],
+                "cell": {
+                  "type": "multi-cell",
+                  "fields": [
+                    {
+                      "fieldName": "count(*)",
+                      "cellType": "text",
+                      "displayName": "Total Actions"
+                    },
+                    {
+                      "fieldName": "countdistinct(app_name)",
+                      "cellType": "text",
+                      "displayName": "Apps Managed"
+                    },
+                    {
+                      "fieldName": "max(event_date)",
+                      "cellType": "text",
+                      "displayName": "Last Active"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 49,
+            "width": 12,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "apps_kpi_cost",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "apps_billing",
+                  "fields": [
+                    {
+                      "name": "sum(estimated_cost)",
+                      "expression": "SUM(`estimated_cost`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Total Apps Cost",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(estimated_cost)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "compact"
+                  },
+                  "displayName": "Total Cost"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "apps_cost_ranking",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "apps_billing",
+                  "fields": [
+                    {
+                      "name": "app_name",
+                      "expression": "`app_name`"
+                    },
+                    {
+                      "name": "sum(estimated_cost)",
+                      "expression": "SUM(`estimated_cost`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "App Cost Ranking",
+                "showTitle": true
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "app_name",
+                  "displayName": "App",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(estimated_cost)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "compact"
+                  },
+                  "displayName": "Estimated Cost",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "app_name",
+                  "legend": {
+                    "hide": true
+                  },
+                  "displayName": "App",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 10,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "apps_monthly_cost",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "apps_billing",
+                  "fields": [
+                    {
+                      "name": "app_name",
+                      "expression": "`app_name`"
+                    },
+                    {
+                      "name": "Usage Month",
+                      "expression": "`Usage Month`"
+                    },
+                    {
+                      "name": "sum(estimated_cost)",
+                      "expression": "SUM(`estimated_cost`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Monthly Apps Cost Trend",
+                "showTitle": true
+              },
+              "mark": {
+                "layout": "stack"
+              },
+              "widgetType": "area",
+              "encodings": {
+                "x": {
+                  "fieldName": "Usage Month",
+                  "displayName": "Month",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(estimated_cost)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    },
+                    "abbreviation": "compact"
+                  },
+                  "displayName": "Total Cost",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "app_name",
+                  "legend": {
+                    "position": "bottom"
+                  },
+                  "displayName": "App",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 10,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "apps_scorecard",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "apps_billing",
+                  "fields": [
+                    {
+                      "name": "app_name",
+                      "expression": "`app_name`"
+                    },
+                    {
+                      "name": "sum(usage_quantity)",
+                      "expression": "SUM(`usage_quantity`)"
+                    },
+                    {
+                      "name": "sum(estimated_cost)",
+                      "expression": "SUM(`estimated_cost`)"
+                    },
+                    {
+                      "name": "measure(Avg Daily Cost)",
+                      "expression": "MEASURE(`Avg Daily Cost`)"
+                    },
+                    {
+                      "name": "measure(Cost per DBU)",
+                      "expression": "MEASURE(`Cost per DBU`)"
+                    },
+                    {
+                      "name": "max(usage_date)",
+                      "expression": "MAX(`usage_date`)"
+                    }
+                  ],
+                  "cubeGroupingSets": {
+                    "sets": [
+                      {
+                        "fieldNames": [
+                          "app_name"
+                        ]
+                      },
+                      {}
+                    ]
+                  },
+                  "disaggregated": false,
+                  "orders": [
+                    {
+                      "direction": "ASC",
+                      "expression": "`app_name`"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "App Health Scorecard",
+                "showTitle": true
+              },
+              "widgetType": "pivot",
+              "encodings": {
+                "rows": [
+                  {
+                    "fieldName": "app_name",
+                    "displayTotal": true,
+                    "displayName": "App Name"
+                  }
+                ],
+                "cell": {
+                  "type": "multi-cell",
+                  "fields": [
+                    {
+                      "fieldName": "sum(usage_quantity)",
+                      "cellType": "text",
+                      "displayName": "Total DBUs"
+                    },
+                    {
+                      "fieldName": "sum(estimated_cost)",
+                      "cellType": "text",
+                      "displayName": "Total Cost"
+                    },
+                    {
+                      "fieldName": "measure(Avg Daily Cost)",
+                      "cellType": "text",
+                      "displayName": "Avg Daily Cost"
+                    },
+                    {
+                      "fieldName": "measure(Cost per DBU)",
+                      "cellType": "text",
+                      "displayName": "Cost per DBU"
+                    },
+                    {
+                      "fieldName": "max(usage_date)",
+                      "cellType": "text",
+                      "displayName": "Last Used"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 26,
+            "width": 12,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "apps_date_filter",
+            "queries": [
+              {
+                "name": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f13c9a86201c4fb36c5029cdd5e1a9_usage_date",
+                "query": {
+                  "datasetName": "apps_billing",
+                  "fields": [
+                    {
+                      "name": "usage_date",
+                      "expression": "`usage_date`"
+                    },
+                    {
+                      "name": "usage_date_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f137e53f4c16528d3c4210bed149ee_event_date",
+                "query": {
+                  "datasetName": "app_audit",
+                  "fields": [
+                    {
+                      "name": "event_date",
+                      "expression": "`event_date`"
+                    },
+                    {
+                      "name": "event_date_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Date Range",
+                "showTitle": true
+              },
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "usage_date",
+                    "queryName": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f13c9a86201c4fb36c5029cdd5e1a9_usage_date"
+                  },
+                  {
+                    "fieldName": "event_date",
+                    "queryName": "dashboards/01f13401c7d21573966327bf805735a0/datasets/01f137e53f4c16528d3c4210bed149ee_event_date"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 0,
+            "width": 4,
+            "height": 1
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "visualizationColors": [
+        "#137CBD",
+        "#2D72D2",
+        "#634DBF",
+        "#9D3F9D",
+        "#C22762",
+        "#D13913",
+        "#D4A007",
+        "#29A634",
+        "#00B3A4",
+        "#7961DB",
+        "#DB2C6F",
+        "#9BBF30"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    },
+    "applyModeEnabled": false
+  }
+}
