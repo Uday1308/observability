@@ -1,0 +1,20 @@
+<div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+  <h2 style="color: #d9534f;">⚠️ Schema Change Detected</h2>
+  <p>Hello Team,</p>
+  <p>Our monitoring system has detected a structural change in <b>{{table_name}}</b>. Please review the details below to assess downstream impact.</p>
+  
+  <hr>
+  
+  <h3>Change Summary</h3>
+  {{QUERY_RESULT_TABLE}}
+  
+  <br>
+  
+  <p><b>Next Steps:</b></p>
+  <ul>
+    <li>Review the <b>change_type</b> to see if columns were added or deleted.</li>
+    <li>Verify the snapshot in the <a href="{{ALERT_URL}}">Databricks Alert Portal</a>.</li>
+  </ul>
+  
+  <p style="font-size: 12px; color: #777;">This is an automated notification from the Databricks Schema Registry.</p>
+</div>
