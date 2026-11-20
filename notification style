@@ -1,3 +1,4 @@
+[SCHEMA CHANGE ALERT] {{QUERY_RESULT_VALUE}} change(s) detected — Action Required
 <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
   <h2 style="color: #d9534f;">⚠️ Schema Change Detected</h2>
   <p>Hello Team,</p>
