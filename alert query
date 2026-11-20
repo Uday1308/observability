@@ -1,0 +1,20 @@
+SELECT
+    r.table_name AS Impacted_Table,
+    r.change_type AS Change_Type,
+    r.modified_by AS Owner,
+    r.check_timestamp AS Detected_At,
+    COALESCE(
+        (
+            SELECT LISTAGG(DISTINCT target_table_full_name, ', ')
+            FROM system.access.table_lineage
+            WHERE source_table_full_name =
+                CONCAT(r.catalog_name, '.', r.schema_name, '.', r.table_name)
+        ),
+        'None Identified'
+    ) AS Downstream_Impact,
+    1 AS trigger_flag
+FROM dev_dlh_platform.observability.schema_registry r
+WHERE r.status = 'Active'
+  AND r.change_type <> 'INITIAL REGISTRATION'
+  AND CAST(r.check_timestamp AS DATE) = CURRENT_DATE()
+ORDER BY r.check_timestamp DESC
